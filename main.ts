@@ -1,11 +1,10 @@
-// NEON HARBOR — the entry program (Node 22, standard library only).
-// It stages the game for the scorer: game/ and screenshots/ are copied from
-// beside this file into the output directory, and /output/dossier.json is
-// written with the vendored make.fun library so the judge can read the entry.
+// DUSTLINE hand-in: copies game/ and screenshots/ next to this file into the
+// output directory and writes the dossier the judge reads, using the kit's
+// buildDossier library (vendor/makefun-game.ts, untouched).
 //
-// Local check (also what the gate runs, with /output instead of out/):
+// Run it outside the grader with:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
-//   # then confirm out/dossier.json exists and out/game stays under the caps.
+// The grader sets /output itself; MAKEFUN_OUTPUT_DIR only stands in for it here.
 
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -15,21 +14,18 @@ import { buildDossier } from './vendor/makefun-game.ts';
 const repoRoot = fileURLToPath(new URL('.', import.meta.url));
 const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-const gameDir = join(repoRoot, 'game');
-const shotsDir = join(repoRoot, 'screenshots');
-
-mkdirSync(outDir, { recursive: true });
-cpSync(gameDir, join(outDir, 'game'), { recursive: true });
-mkdirSync(join(outDir, 'screenshots'), { recursive: true });
-if (existsSync(shotsDir)) {
-  cpSync(shotsDir, join(outDir, 'screenshots'), { recursive: true });
+function copyTree(from, to) {
+  mkdirSync(to, { recursive: true });
+  cpSync(from, to, { recursive: true });
 }
 
-// Caps mirror the gate (see the kit's RULES.txt): the dossier text cap shapes
-// the bytes, the rest refuse an entry the scorer would refuse — too many or
-// too large screenshots, too many files or bytes under game/, or a game path
-// over 1000 bytes. game/ shares /output's own 1000-entry cap with
-// screenshots/ and dossier.json, so the caps below leave room.
+copyTree(join(repoRoot, 'game'), join(outDir, 'game'));
+if (existsSync(join(repoRoot, 'screenshots'))) {
+  copyTree(join(repoRoot, 'screenshots'), join(outDir, 'screenshots'));
+}
+
+// The caps mirror the gate: 4 screenshots at most, each under 256 KiB; game/ under
+// 993 entries and 48 MiB; the dossier text itself capped at 160 KiB.
 const dossier = buildDossier(outDir, {
   text_max_bytes: 163840,
   screenshots: { max: 4, max_bytes: 262144 },
@@ -37,5 +33,15 @@ const dossier = buildDossier(outDir, {
   game_max_bytes: 50331648,
   game_path_max_bytes: 1000,
 });
-
 writeFileSync(join(outDir, 'dossier.json'), dossier);
+
+// Small build report so a human can see at a glance that the hand-in is complete.
+import { statSync, readdirSync } from 'node:fs';
+const gameFiles = readdirSync(join(outDir, 'game'), { recursive: true });
+const shotFiles = existsSync(join(outDir, 'screenshots'))
+  ? readdirSync(join(outDir, 'screenshots'))
+  : [];
+console.log(`DUSTLINE hand-in written to ${outDir}`);
+console.log(`  game/: ${gameFiles.length} entries`);
+console.log(`  screenshots/: ${shotFiles.join(', ') || '(none)'}`);
+console.log(`  dossier.json: ${statSync(join(outDir, 'dossier.json')).size} bytes`);

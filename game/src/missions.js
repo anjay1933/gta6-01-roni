@@ -1,170 +1,164 @@
-// NEON HARBOR — missions: the 6-mission story arc for Dana Cruz.
-// Marker beacon + HUD objective + cash rewards + unlock progression.
-(function () {
-  var NH = window.NH;
-  var THREE = window.THREE;
+// DUSTLINE missions: Jax Marlowe's six-job arc for the Dustline Runners. Each job
+// has a target, a kind (drive there / collect / survive / eliminate / escape) and
+// a cash reward. A floating beacon marks the target; the HUD shows the objective
+// and the distance. Completing a job pays out and unlocks the next one.
 
-  var M = NH.missions = {
-    current: 0,           // index into NH.MISSIONS (0-based)
-    state: 'idle',        // idle | active | done | complete
-    timer: 0,
-    marker: null,         // beacon mesh
-    markerLight: null,
-    tailCar: null,        // mission 2 tail
-    targetCar: null,      // mission 3 steal target
-    rivals: [],           // mission 5 shooters
-    rivalCount: 0
-  };
+import * as THREE from 'three';
+import { MISSIONS } from './config.js';
+import { dist2D } from './util.js';
 
-  M.start = function (idx) {
-    var def = NH.MISSIONS[idx];
-    if (!def) return;
-    M.current = idx;
-    M.state = 'active';
-    M.timer = def.timed || 0;
-    M.showMarker(def.target.x, def.target.z);
-    NH.hud.banner('MISSION ' + def.id + ' — ' + def.title, def.brief);
-    NH.hud.setObjective(def.title, def.target);
-    NH.audio.pickup();
-    if (def.wanted) NH.police.addStars(def.wanted, def.title + ' — the cops are coming');
-    if (def.id === 2) {
-      // tail car spawns behind the player
-      var p = NH.player.group.position;
-      M.tailCar = NH.vehicles.create('sedan', p.x + 20, p.z + 10, 0, 'tail');
-      M.tailCar.bodyMat.color.setHex(0x111111);
-    }
-    if (def.id === 3) {
-      M.targetCar = NH.vehicles.create('sport', def.target.x, def.target.z, Math.PI / 2, 'parked');
-      M.targetCar.wasParked = true;
-      for (var i = 0; i < 2; i++) {
-        var g = NH.combat.spawnRival(def.target.x + NH.rand(-8, 8), def.target.z + NH.rand(-8, 8));
-        M.rivals.push(g);
-      }
-      M.rivalCount = 2;
-    }
-    if (def.id === 5) {
-      for (var j = 0; j < def.enemies; j++) {
-        var r = NH.combat.spawnRival(
-          NH.city.plaza.x + NH.rand(-18, 18), NH.city.plaza.z + NH.rand(-18, 18));
-        M.rivals.push(r);
-      }
-      M.rivalCount = def.enemies;
-    }
-    NH.main.save();
-  };
+export class MissionDirector {
+  constructor(scene, rng) {
+    this.scene = scene;
+    this.rng = rng;
+    this.index = 0;               // 0-based into MISSIONS
+    this.done = 0;                // jobs completed this run
+    this.active = null;           // live state for the current job
+    this.allDone = false;
+    // Beacon: a glowing pillar + ring at the target, visible across town.
+    const beamGeo = new THREE.CylinderGeometry(1.6, 1.6, 60, 12, 1, true);
+    const beamMat = new THREE.MeshBasicMaterial({
+      color: 0xffd76a, transparent: true, opacity: 0.35, side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    this.beacon = new THREE.Mesh(beamGeo, beamMat);
+    this.beacon.position.y = 30;
+    this.scene.add(this.beacon);
+    const ringGeo = new THREE.RingGeometry(3, 5, 32);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0xffd76a, transparent: true, opacity: 0.8, side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    this.ring = new THREE.Mesh(ringGeo, ringMat);
+    this.ring.rotation.x = -Math.PI / 2;
+    this.ring.position.y = 0.15;
+    this.scene.add(this.ring);
+    this.beacon.visible = false;
+    this.ring.visible = false;
+  }
 
-  M.showMarker = function (x, z) {
-    M.hideMarker();
-    var g = new THREE.Group();
-    var beam = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 40, 12, 1, true),
-      new THREE.MeshBasicMaterial({ color: 0xffd21f, transparent: true, opacity: 0.35, side: THREE.DoubleSide }));
-    beam.position.y = 20;
-    var ring = new THREE.Mesh(new THREE.RingGeometry(2.2, 3, 24),
-      new THREE.MeshBasicMaterial({ color: 0xffd21f, transparent: true, opacity: 0.9, side: THREE.DoubleSide }));
-    ring.rotation.x = -Math.PI / 2; ring.position.y = 0.15;
-    g.add(beam); g.add(ring);
-    g.position.set(x, NH.city.groundHeight(x, z), z);
-    NH.scene.add(g);
-    M.marker = g;
-  };
+  get current() {
+    return MISSIONS[this.index] ?? null;
+  }
 
-  M.hideMarker = function () {
-    if (M.marker) { NH.scene.remove(M.marker); M.marker = null; }
-  };
+  get missionLabel() {
+    const m = this.current;
+    return m ? `Mission ${m.id} — ${m.name}` : 'All jobs done';
+  }
 
-  M.complete = function () {
-    var def = NH.MISSIONS[M.current];
-    NH.player.cash += def.reward;
-    NH.hud.banner('MISSION COMPLETE', def.title + ' — +$' + def.reward);
-    NH.audio.pickup();
-    M.hideMarker();
-    M.cleanup();
-    M.current++;
-    if (M.current >= NH.MISSIONS.length) {
-      M.state = 'complete';
-      NH.main.gameOver('complete');
+  start(index = 0) {
+    this.index = index;
+    this.done = 0;
+    this.allDone = false;
+    this.setupCurrent();
+  }
+
+  setupCurrent() {
+    const m = this.current;
+    this.active = null;
+    if (!m) {
+      this.allDone = true;
+      this.beacon.visible = false;
+      this.ring.visible = false;
       return;
     }
-    M.state = 'idle';
-    NH.main.save();
-    setTimeout(function () { if (NH.state === 'playing') M.start(M.current); }, 2500);
-  };
+    this.beacon.position.set(m.target.x, 30, m.target.z);
+    this.ring.position.set(m.target.x, 0.15, m.target.z);
+    this.beacon.visible = true;
+    this.ring.visible = true;
+    this.active = {
+      collected: 0,
+      eliminated: 0,
+      surviveLeft: m.seconds ?? 0,
+      inZone: false,
+      tailSpawned: false,
+      rivalsSpawned: false,
+      escapeArmed: false,
+    };
+  }
 
-  M.fail = function (reason) {
-    NH.hud.banner('MISSION FAILED', reason);
-    M.hideMarker();
-    M.cleanup();
-    M.state = 'idle';
-    setTimeout(function () { if (NH.state === 'playing') M.start(M.current); }, 2500);
-  };
+  /** Distance from the player to the current target, for the HUD. */
+  distanceToTarget(px, pz) {
+    const m = this.current;
+    if (!m) return 0;
+    return Math.round(dist2D(px, pz, m.target.x, m.target.z));
+  }
 
-  M.cleanup = function () {
-    if (M.tailCar) { NH.vehicles.remove(M.tailCar); M.tailCar = null; }
-    M.rivals.forEach(function (r) { NH.combat.removeRival(r); });
-    M.rivals = []; M.rivalCount = 0; M.targetCar = null;
-  };
+  /** Short progress line for the HUD: crates 1/3, rivals down 2/5, survive 24s. */
+  progress() {
+    const m = this.current;
+    if (!m || !this.active) return '';
+    if (m.kind === 'collect') return `Crates ${this.active.collected}/${m.count}`;
+    if (m.kind === 'eliminate' && this.active.rivalsSpawned) return `Rivals down ${this.active.eliminated}/${m.count}`;
+    if (m.kind === 'survive' && this.active.inZone) return `Hold on ${Math.ceil(this.active.surviveLeft)}s`;
+    return '';
+  }
 
-  M.update = function (dt) {
-    if (M.state !== 'active') return;
-    var def = NH.MISSIONS[M.current];
-    var p = NH.player.group.position;
-    if (M.marker) M.marker.rotation.y += dt * 1.5;
-    if (def.timed) {
-      M.timer -= dt;
-      NH.hud.setTimer(Math.max(0, Math.ceil(M.timer)));
-      if (M.timer <= 0) { M.fail('Out of time!'); return; }
+  /**
+   * Per-frame progress. `ctx` carries the live game state the jobs read:
+   * { px, pz, inCar, speed, stars, rivals, cratesCollected }.
+   * Returns an event string when something happens ('complete', 'failed', 'tail', 'rivals')
+   * or null. The caller applies rewards and toasts on 'complete'.
+   */
+  update(dt, ctx) {
+    const m = this.current;
+    if (!m || !this.active) return null;
+    const a = this.active;
+    const d = dist2D(ctx.px, ctx.pz, m.target.x, m.target.z);
+
+    if (m.kind === 'goto') {
+      if (m.tail && !a.tailSpawned && d < 220) {
+        a.tailSpawned = true;
+        return 'tail';
+      }
+      if (d < 9) return 'complete';
     }
-    var d = NH.dist2d(p.x, p.z, def.target.x, def.target.z);
-    NH.hud.setObjective(def.title + ' — ' + Math.round(d) + 'm', def.target);
-
-    if (def.type === 'goto' || def.type === 'deliver' || def.type === 'escape') {
-      if (d < 6) {
-        if (def.type === 'escape' && NH.police.stars > 0 && def.id !== 6) {
-          // getaway: must also lose the cops (handled below)
-        }
-        if (def.id === 4) {
-          if (NH.police.stars === 0) { M.complete(); return; }
-          NH.hud.setObjective('Lose the cops first! Stars: ' + NH.police.stars, def.target);
-          return;
-        }
-        M.complete();
-        return;
+    if (m.kind === 'collect') {
+      a.collected = ctx.cratesCollected;
+      if (a.collected >= m.count) return 'complete';
+    }
+    if (m.kind === 'survive') {
+      if (d < 12 && ctx.stars >= 3) {
+        if (!a.inZone) { a.inZone = true; a.surviveLeft = m.seconds; }
+        a.surviveLeft -= dt;
+        if (a.surviveLeft <= 0) return 'complete';
+      } else {
+        a.inZone = false;
       }
     }
-    if (def.type === 'steal') {
-      // win when the player drives the target sport car into the garage zone
-      var pc = NH.vehicles.playerCar;
-      if (pc && pc === M.targetCar) {
-        var gd = NH.dist2d(pc.group.position.x, pc.group.position.z, NH.city.garage.x, NH.city.garage.z);
-        NH.hud.setObjective('Bring the sport car to the garage — ' + Math.round(gd) + 'm', NH.city.garage);
-        if (gd < 12) { M.complete(); return; }
-      } else if (M.targetCar) {
-        var td = NH.dist2d(p.x, p.z, M.targetCar.group.position.x, M.targetCar.group.position.z);
-        NH.hud.setObjective('Steal the sport car — ' + Math.round(td) + 'm', M.targetCar.group.position);
+    if (m.kind === 'eliminate') {
+      if (!a.rivalsSpawned && d < 60) {
+        a.rivalsSpawned = true;
+        return 'rivals';
       }
+      a.eliminated = ctx.eliminated;
+      if (a.rivalsSpawned && a.eliminated >= m.count) return 'complete';
     }
-    if (def.type === 'shootout') {
-      var left = M.rivals.filter(function (r) { return !r.dead; }).length;
-      NH.hud.setObjective('Clear the plaza — rivals left: ' + left, def.target);
-      if (left === 0) { M.complete(); return; }
+    if (m.kind === 'escape') {
+      if (!a.escapeArmed && d < 260) {
+        a.escapeArmed = true;
+        return 'roadblock';
+      }
+      if (a.escapeArmed && ctx.px > 400) return 'complete';
     }
-    // mission 2 tail car chases the player
-    if (M.tailCar) {
-      var t = M.tailCar;
-      var dx = p.x - t.group.position.x, dz = p.z - t.group.position.z;
-      var dd = Math.sqrt(dx * dx + dz * dz) || 1;
-      var want = Math.atan2(dx, dz);
-      var dh = want - t.heading;
-      while (dh > Math.PI) dh -= Math.PI * 2;
-      while (dh < -Math.PI) dh += Math.PI * 2;
-      t.heading += NH.clamp(dh, -1, 1) * 2 * dt;
-      t.speed += (24 - t.speed) * Math.min(1, dt);
-      t.group.position.x += Math.sin(t.heading) * t.speed * dt;
-      t.group.position.z += Math.cos(t.heading) * t.speed * dt;
-      t.group.position.y = NH.city.groundHeight(t.group.position.x, t.group.position.z);
-      t.group.rotation.y = t.heading;
-      t.wheels.forEach(function (w) { w.rotation.x += t.speed * dt * 2; });
-      if (dd < 3) { t.speed *= 0.5; NH.audio.crash(); }
-    }
-  };
-})();
+    return null;
+  }
+
+  /** Move to the next job. Returns the reward of the job just finished. */
+  complete() {
+    const m = this.current;
+    const reward = m ? m.reward : 0;
+    this.done += 1;
+    this.index += 1;
+    this.setupCurrent();
+    return reward;
+  }
+
+  /** Pulse the beacon ring so it reads from a distance. */
+  animate(t) {
+    if (!this.beacon.visible) return;
+    const s = 1 + Math.sin(t * 3) * 0.12;
+    this.ring.scale.set(s, s, 1);
+    this.beacon.material.opacity = 0.28 + Math.sin(t * 3) * 0.08;
+  }
+}

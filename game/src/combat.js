@@ -1,211 +1,163 @@
-// NEON HARBOR — combat: pistol + drive-by shooting, fists, health/armor/ammo
-// pickups, and armed rivals for the story missions.
-(function () {
-  var NH = window.NH;
-  var THREE = window.THREE;
+// DUSTLINE combat: pistol shooting by raycast, fists at arm's length, drive-by
+// fire from the car window, and health / armor / ammo pickups scattered around
+// town that respawn over time. No hitscan magic — every shot is a ray from the
+// camera through the crosshair, with a tracer and a muzzle flash you can see.
 
-  var C = NH.combat = {
-    pickups: [], rivals: [], tracers: [],
-    raycaster: null, shootCooldown: 0, meleeCooldown: 0
-  };
+import * as THREE from 'three';
+import { PLAYER, PICKUPS } from './config.js';
+import { dist2D } from './util.js';
 
-  C.init = function () {
-    C.raycaster = new THREE.Raycaster();
-    // scattered pickups around the city
-    var spots = [
-      ['health', -60, 60], ['armor', 40, -60], ['ammo', -120, 100], ['health', 100, 100],
-      ['ammo', 20, -120], ['armor', -40, -140], ['health', 140, 20], ['ammo', -160, -20]
-    ];
-    spots.forEach(function (s) { C.spawnPickup(s[0], s[1], s[2]); });
-  };
+export class Combat {
+  constructor(scene, sound) {
+    this.scene = scene;
+    this.sound = sound;
+    this.ammo = PLAYER.pistolAmmoStart;
+    this.cooldown = 0;
+    this.punchCooldown = 0;
+    this.raycaster = new THREE.Raycaster();
+    this.tracers = [];
+    this.muzzle = new THREE.PointLight(0xffc46a, 0, 18);
+    this.scene.add(this.muzzle);
+    this.pickups = [];
+    this.spawnedAt = new Map();
+  }
 
-  C.spawnPickup = function (kind, x, z) {
-    var color = kind === 'health' ? 0x39ff88 : kind === 'armor' ? 0x22aaff : 0xffd21f;
-    var mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1),
-      new THREE.MeshBasicMaterial({ color: color }));
-    mesh.position.set(x, 1, z);
-    NH.scene.add(mesh);
-    var pk = { kind: kind, mesh: mesh, x: x, z: z, bob: NH.rand(0, 6) };
-    C.pickups.push(pk);
-    return pk;
-  };
+  /** Place the pickup props from the town's spots. */
+  buildPickups(spots) {
+    for (const spot of spots) {
+      const color = PICKUPS[spot.kind].color;
+      const group = new THREE.Group();
+      // A floating gem, not a box: it reads as a pickup at a glance.
+      const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.75),
+        new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.1, roughness: 0.3 }));
+      gem.castShadow = true;
+      group.add(gem);
+      const ring = new THREE.Mesh(new THREE.RingGeometry(1.2, 1.6, 24),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55, side: THREE.DoubleSide }));
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = -0.9;
+      group.add(ring);
+      group.position.set(spot.x, 1.4, spot.z);
+      this.scene.add(group);
+      this.pickups.push({ kind: spot.kind, x: spot.x, z: spot.z, mesh: group, taken: false, timer: 0 });
+    }
+  }
 
-  C.spawnRival = function (x, z) {
-    var g = new THREE.Group();
-    var red = new THREE.MeshLambertMaterial({ color: 0xc22e2e });
-    var skin = new THREE.MeshLambertMaterial({ color: 0xc89878 });
-    var torso = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.95, 0.42), red);
-    torso.position.y = 1.25;
-    var head = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.44, 0.44), skin);
-    head.position.y = 1.98;
-    var legL = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.75, 0.3), red);
-    legL.position.set(-0.19, 0.38, 0);
-    var legR = legL.clone(); legR.position.x = 0.19;
-    g.add(torso); g.add(head); g.add(legL); g.add(legR);
-    g.position.set(x, 0, z);
-    NH.scene.add(g);
-    var rival = { group: g, legL: legL, legR: legR, health: 60, dead: false, shootTimer: NH.rand(1, 2.5), walkPhase: 0 };
-    C.rivals.push(rival);
-    return rival;
-  };
-
-  C.removeRival = function (rival) {
-    NH.scene.remove(rival.group);
-    var i = C.rivals.indexOf(rival);
-    if (i >= 0) C.rivals.splice(i, 1);
-  };
-
-  // A visible shot line from `from` to `to`, fades in 120ms.
-  C.tracer = function (from, to, color) {
-    var geo = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(from.x, from.y + 1.4, from.z),
-      new THREE.Vector3(to.x, to.y + 1.2, to.z)
-    ]);
-    var line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: color || 0xffe9a8 }));
-    NH.scene.add(line);
-    C.tracers.push({ line: line, t: 0.12 });
-  };
-
-  C.shoot = function () {
-    var p = NH.player;
-    if (C.shootCooldown > 0 || NH.state !== 'playing') return;
-    if (p.ammo <= 0) { NH.hud.message('No ammo — find an ammo pickup (yellow)'); NH.audio.blip(220); return; }
-    C.shootCooldown = 0.22;
-    p.ammo--;
-    NH.audio.shot();
-    NH.traffic.scare(p.group.position.x, p.group.position.z, 30);
-    // raycast from camera through screen center
-    C.raycaster.setFromCamera({ x: 0, y: 0 }, NH.camera);
-    C.raycaster.far = 120;
-    var targets = [];
-    NH.traffic.peds.forEach(function (ped) { if (!ped.dead) targets.push(ped.group); });
-    NH.police.cops.forEach(function (c) { targets.push(c.group); });
-    C.rivals.forEach(function (r) { if (!r.dead) targets.push(r.group); });
-    NH.vehicles.cars.forEach(function (c) { targets.push(c.group); });
-    var hits = C.raycaster.intersectObjects(targets, true);
-    var end = null;
+  /**
+   * Fire the pistol. `origin` is the camera position, `dir` the aim direction,
+   * `targets` an array of Walker-likes with .group/.alive/.damage(). Returns the
+   * Walker hit (or null) and always spends one bullet + one cooldown.
+   */
+  shoot(origin, dir, targets) {
+    if (this.cooldown > 0 || this.ammo <= 0) return null;
+    this.cooldown = PLAYER.shootCooldown;
+    this.ammo -= 1;
+    this.sound.gunshot();
+    this.muzzle.position.copy(origin).addScaledVector(dir, 1.2);
+    this.muzzle.intensity = 60;
+    this.raycaster.set(origin, dir);
+    this.raycaster.far = 90;
+    const meshes = [];
+    for (const t of targets) {
+      if (t.alive) t.group.traverse((o) => { if (o.isMesh) { o.userData.target = t; meshes.push(o); } });
+    }
+    const hits = this.raycaster.intersectObjects(meshes, false);
+    const end = origin.clone().addScaledVector(dir, 90);
+    let hitTarget = null;
     if (hits.length > 0) {
-      var hit = hits[0];
-      end = hit.point;
-      // walk up to the object that owns this mesh
-      var obj = hit.object;
-      while (obj.parent && obj.parent !== NH.scene) obj = obj.parent;
-      var owner = obj;
-      // ped?
-      var ped = NH.traffic.peds.find(function (pd) { return pd.group === owner; });
-      if (ped) {
-        ped.dead = true; ped.group.rotation.x = -Math.PI / 2; ped.group.position.y = 0.3;
-        NH.police.addStars(1, 'shot a pedestrian');
-      }
-      var cop = NH.police.cops.find(function (cp) { return cp.group === owner; });
-      if (cop) {
-        cop.health -= 50;
-        if (cop.health <= 0) { NH.scene.remove(cop.group); NH.police.cops.splice(NH.police.cops.indexOf(cop), 1); }
-        NH.police.addStars(1, 'shot a cop');
-      }
-      var rival = C.rivals.find(function (rv) { return rv.group === owner; });
-      if (rival) {
-        rival.health -= 50;
-        if (rival.health <= 0) {
-          rival.dead = true;
-          rival.group.rotation.x = -Math.PI / 2;
-          rival.group.position.y = 0.3;
-          NH.player.cash += 50;
-          NH.hud.message('Rival down! +$50');
-        }
-      }
-      var car = NH.vehicles.cars.find(function (cc) { return cc.group === owner; });
-      if (car && car.driver !== 'player') {
-        car.damage += 15;
-        if (car.damage > 80) {
-          NH.hud.message('Car wrecked!');
-          NH.vehicles.remove(car);
-        }
-      }
-    } else {
-      end = C.raycaster.ray.at(120, new THREE.Vector3());
+      const h = hits[0];
+      end.copy(h.point);
+      hitTarget = h.object.userData.target;
+      if (hitTarget) hitTarget.damage(PLAYER.pistolDamage);
     }
-    C.tracer(p.group.position, end, 0xffe9a8);
-    if (!p.onFoot) { /* drive-by: shooting from the car also counts */ }
-  };
+    // Tracer: a bright line that fades in a tenth of a second.
+    const geo = new THREE.BufferGeometry().setFromPoints([origin.clone(), end]);
+    const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xffe9a8, transparent: true, opacity: 0.95 }));
+    this.scene.add(line);
+    this.tracers.push({ line, life: 0.12 });
+    return hitTarget;
+  }
 
-  C.melee = function () {
-    var p = NH.player;
-    if (C.meleeCooldown > 0 || !p.onFoot) return;
-    C.meleeCooldown = 0.5;
-    NH.audio.blip(180);
-    var fx = Math.sin(p.heading), fz = Math.cos(p.heading);
-    var hit = null;
-    NH.traffic.peds.forEach(function (ped) {
-      if (ped.dead) return;
-      var dx = ped.group.position.x - p.group.position.x;
-      var dz = ped.group.position.z - p.group.position.z;
-      if (dx * fx + dz * fz > 0 && Math.sqrt(dx * dx + dz * dz) < 2.2) hit = ped;
-    });
-    if (hit) {
-      hit.dead = true; hit.group.rotation.x = -Math.PI / 2; hit.group.position.y = 0.3;
-      NH.traffic.scare(hit.group.position.x, hit.group.position.z, 20);
-      NH.police.addStars(1, 'assault');
+  /** A swing at arm's length. Returns the Walker hit, if any. */
+  punch(px, pz, heading, targets) {
+    if (this.punchCooldown > 0) return null;
+    this.punchCooldown = PLAYER.punchCooldown;
+    this.sound.punch();
+    const fx = Math.cos(heading);
+    const fz = -Math.sin(heading);
+    for (const t of targets) {
+      if (!t.alive) continue;
+      const d = dist2D(px, pz, t.x, t.z);
+      if (d > PLAYER.punchRange) continue;
+      const dot = ((t.x - px) * fx + (t.z - pz) * fz) / Math.max(0.001, d);
+      if (dot > 0.35) {
+        t.damage(PLAYER.punchDamage);
+        return t;
+      }
     }
-  };
+    return null;
+  }
 
-  C.update = function (dt) {
-    if (C.shootCooldown > 0) C.shootCooldown -= dt;
-    if (C.meleeCooldown > 0) C.meleeCooldown -= dt;
-    var p = NH.player;
-    var inp = NH.input;
-    // left click shoots (on foot or drive-by), F punches
-    if (inp.leftDown) C.shoot();
-    if (inp.consumeKey('KeyF')) C.melee();
-    // pickups bob + collect
-    C.pickups.forEach(function (pk, i) {
-      pk.bob += dt * 2;
-      pk.mesh.position.y = 1 + Math.sin(pk.bob) * 0.2;
-      pk.mesh.rotation.y += dt;
-      var d = NH.dist2d(p.group.position.x, p.group.position.z, pk.x, pk.z);
-      if (d < 2) {
-        if (pk.kind === 'health') { p.heal(40); NH.hud.message('Health +40'); }
-        if (pk.kind === 'armor') { p.armor = Math.min(100, p.armor + 50); NH.hud.message('Armor +50'); }
-        if (pk.kind === 'ammo') { p.ammo += 24; NH.hud.message('Ammo +24'); }
-        NH.audio.pickup();
-        NH.scene.remove(pk.mesh);
-        C.pickups.splice(i, 1);
-        // respawn elsewhere later
-        setTimeout(function () {
-          if (NH.state === 'playing') C.spawnPickup(pk.kind, NH.rand(-160, 160), NH.rand(-160, 160));
-        }, 20000);
+  /** Drive-by: auto-aim at the nearest living target within 40 m of the car. */
+  driveBy(car, targets) {
+    if (this.cooldown > 0 || this.ammo <= 0) return null;
+    let best = null;
+    let bestD = 40;
+    for (const t of targets) {
+      if (!t.alive) continue;
+      const d = dist2D(car.x, car.z, t.x, t.z);
+      if (d < bestD) { bestD = d; best = t; }
+    }
+    if (!best) return null;
+    const origin = new THREE.Vector3(car.x, 1.6, car.z);
+    const dir = new THREE.Vector3(best.x - car.x, 0.2, best.z - car.z).normalize();
+    return this.shoot(origin, dir, targets);
+  }
+
+  /** Walk-over pickups. Returns the kind collected, or null. */
+  collect(px, pz, state) {
+    for (const p of this.pickups) {
+      if (p.taken) continue;
+      if (dist2D(px, pz, p.x, p.z) < 2.4) {
+        p.taken = true;
+        p.timer = PICKUPS[p.kind].respawn;
+        p.mesh.visible = false;
+        this.sound.pickup();
+        if (p.kind === 'health') state.health = Math.min(100, state.health + PICKUPS.health.amount);
+        if (p.kind === 'armor') state.armor = Math.min(100, state.armor + PICKUPS.armor.amount);
+        if (p.kind === 'ammo') this.ammo += PICKUPS.ammo.amount;
+        return p.kind;
       }
-    });
-    // tracers fade
-    C.tracers.forEach(function (t, i) {
-      t.t -= dt;
-      if (t.t <= 0) { NH.scene.remove(t.line); C.tracers.splice(i, 1); }
-    });
-    // rivals: advance on the player and shoot
-    C.rivals.forEach(function (r) {
-      if (r.dead) return;
-      var dx = p.group.position.x - r.group.position.x;
-      var dz = p.group.position.z - r.group.position.z;
-      var d = Math.sqrt(dx * dx + dz * dz) || 1;
-      if (d > 6) {
-        r.group.position.x += (dx / d) * 3.5 * dt;
-        r.group.position.z += (dz / d) * 3.5 * dt;
-        r.walkPhase += dt * 7;
-        r.legL.rotation.x = Math.sin(r.walkPhase) * 0.6;
-        r.legR.rotation.x = -Math.sin(r.walkPhase) * 0.6;
+    }
+    return null;
+  }
+
+  update(dt, t) {
+    this.cooldown = Math.max(0, this.cooldown - dt);
+    this.punchCooldown = Math.max(0, this.punchCooldown - dt);
+    this.muzzle.intensity = Math.max(0, this.muzzle.intensity - dt * 500);
+    for (let i = this.tracers.length - 1; i >= 0; i--) {
+      const tr = this.tracers[i];
+      tr.life -= dt;
+      tr.line.material.opacity = Math.max(0, tr.life / 0.12);
+      if (tr.life <= 0) {
+        this.scene.remove(tr.line);
+        tr.line.geometry.dispose();
+        tr.line.material.dispose();
+        this.tracers.splice(i, 1);
       }
-      r.group.rotation.y = Math.atan2(dx, dz);
-      r.group.position.y = NH.city.groundHeight(r.group.position.x, r.group.position.z);
-      if (d < 30) {
-        r.shootTimer -= dt;
-        if (r.shootTimer <= 0) {
-          r.shootTimer = NH.rand(1.4, 2.6);
-          if (NH.rng() < 0.4) {
-            p.damage(NH.randInt(5, 11));
-            C.tracer(r.group.position, p.group.position, 0xff6644);
-          }
+    }
+    for (const p of this.pickups) {
+      if (p.taken) {
+        p.timer -= dt;
+        if (p.timer <= 0) {
+          p.taken = false;
+          p.mesh.visible = true;
         }
+      } else {
+        p.mesh.rotation.y += dt * 1.2;
+        p.mesh.position.y = 1.4 + Math.sin(t * 2 + p.x) * 0.15;
       }
-    });
-  };
-})();
+    }
+  }
+}

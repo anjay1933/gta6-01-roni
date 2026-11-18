@@ -1,110 +1,107 @@
-// NEON HARBOR — shots: deterministic staging for the 4 screenshots.
-// ?shot=<name>&seed=N stages a scene, then sets window.__shotReady.
-(function () {
-  var NH = window.NH;
+// DUSTLINE screenshot staging: ?shot=<name>&seed=<n> puts the live game into a
+// fixed, deterministic frame — the same seed always gives the same picture — and
+// raises window.__shotReady once a few frames have rendered, so a headless
+// browser can screenshot exactly what a player would see.
+//
+//   1-cover.jpg  wide golden-hour skyline: highway, downtown, a muscle car, dust
+//   2-gas.jpg    Jax on foot at the gas station, mission beacon overhead
+//   3-chase.jpg  highway chase at 3 stars, two police cars on the tail
+//   4-mission.jpg quarry heist: Jax, crates, guards, pistol out
 
-  var SH = NH.shots = { name: null, applied: false, frames: 0 };
+import { makeRng } from './util.js';
 
-  SH.presets = {
-    // Cover: wide night skyline looking north up the x=-40 street canyon,
-    // player in the pink sport car, NEON HARBOR sign ahead.
-    start: function () {
-      var car = NH.vehicles.create('sport', -40, 40, Math.PI, 'player');
-      NH.vehicles.playerCar = car;
-      NH.player.onFoot = false; NH.player.car = car;
-      NH.player.group.visible = false;
-      NH.player.group.position.copy(car.group.position);
-      NH.player.heading = car.heading;
-      NH.player.camPitch = 0.35;
-      NH.player.driveCamDist = 15;
-      NH._orbit = 0;
-      NH.missions.state = 'active'; NH.missions.current = 0;
-      NH.missions.showMarker(NH.MISSIONS[0].target.x, NH.MISSIONS[0].target.z);
-      NH.hud.setObjective('FIRST PICKUP — Pier 9, 150m', NH.MISSIONS[0].target);
-      NH.player.cash = 200;
-    },
-    // On foot at the docks, open ground, crane + container stacks ahead, cops closing in.
-    docks: function () {
-      NH.player.group.position.set(-120, 0, -30);
-      NH.player.heading = -2.6; // face the crane at (-150,-80)
-      NH.player.group.visible = true;
-      NH.player.onFoot = true;
-      NH.police.stars = 1;
-      NH.police.spawnCop(-108, -44);
-      NH.police.spawnCop(-132, -18);
-      NH.traffic.spawnPed(-112, -20);
-      NH.traffic.spawnPed(-128, -44);
-      NH.missions.state = 'active'; NH.missions.current = 2;
-      NH.missions.showMarker(-140, -40);
-      NH.hud.setObjective('CONTAINER YARD — steal the sport car, 82m', { x: -140, z: -40 });
-      NH.player.cash = 800;
-      NH.player.ammo = 18;
-    },
-    // Driving chase: 3 stars, police cars set up ahead as a roadblock, downtown neon ahead.
-    chase: function () {
-      var car = NH.vehicles.create('sedan', 40, 60, Math.PI, 'player');
-      NH.vehicles.playerCar = car;
-      NH.player.onFoot = false; NH.player.car = car;
-      NH.player.group.visible = false;
-      NH.player.group.position.copy(car.group.position);
-      NH.player.heading = car.heading;
-      car.speed = 34;
-      NH.police.stars = 3;
-      var pc1 = NH.police.spawnPoliceCar();
-      pc1.group.position.set(38, NH.city.groundHeight(38, 40), 40);
-      pc1.heading = -Math.PI / 2;
-      var pc2 = NH.police.spawnPoliceCar();
-      pc2.group.position.set(44, NH.city.groundHeight(44, 36), 36);
-      pc2.heading = Math.PI / 2;
-      NH.traffic.spawnTrafficCar();
-      NH.missions.state = 'active'; NH.missions.current = 3;
-      NH.missions.showMarker(60, 120);
-      NH.hud.setObjective('HOT GETAWAY — reach the safehouse, 64m', { x: 60, z: 120 });
-      NH.player.cash = 1300;
-      NH.player.health = 82;
-    },
-    // Mission moment: downtown shootout at the plaza intersection, rivals + a cop.
-    mission: function () {
-      NH.player.group.position.set(40, 0, 64); // on the x=40 street, camera stays on the road
-      NH.player.heading = Math.PI;
-      NH.player.group.visible = true;
-      NH.player.onFoot = true;
-      NH.player.ammo = 36;
-      NH.player.armor = 60;
-      for (var i = 0; i < 4; i++) {
-        var r = NH.combat.spawnRival(40 + NH.rand(-12, 12), 40 + NH.rand(-12, 12));
-        NH.missions.rivals.push(r);
-      }
-      NH.police.stars = 2;
-      NH.police.spawnCop(52, 52);
-      NH.missions.state = 'active'; NH.missions.current = 4;
-      NH.missions.showMarker(40, 40);
-      NH.hud.setObjective('DOWNTOWN SHOOTOUT — rivals left: 4', { x: 40, z: 40 });
-      NH.player.cash = 2300;
-      NH.player.health = 90;
-    }
-  };
+/** Stage one named shot. `game` is the live Game object from main.js. */
+export function stageShot(name, game) {
+  const params = new URLSearchParams(window.location.search);
+  const seed = Number(params.get('seed') || '11');
+  const rng = makeRng(seed);
+  game.startFreeRoam();
+  const cam = game.camera;
 
-  SH.apply = function () {
-    var params = new URLSearchParams(location.search);
-    var name = params.get('shot');
-    if (!name || !SH.presets[name]) return false;
-    SH.name = name;
-    // start from the menu state but playing, so the HUD draws
-    NH.state = 'playing';
-    document.getElementById('menu').style.display = 'none';
-    document.getElementById('hud').style.display = 'block';
-    SH.presets[name]();
-    return true;
-  };
+  if (name === '2-gas') {
+    // On foot at the gas station, beacon overhead, diner sign behind.
+    game.player.x = -182;
+    game.player.z = 40;
+    game.player.heading = Math.atan2(-(26 - 40), -190 - -182);
+    game.player.camYaw = game.player.heading;
+    game.player.group.position.set(game.player.x, 0, game.player.z);
+    game.player.group.rotation.y = game.player.heading;
+    game.missions.start(0);
+    game.hud.show();
+    game.state = 'playing';
+  } else if (name === '3-chase') {
+    // Driving the muscle car down the highway, 3 stars, two cops closing in.
+    // Locked 3/4 rear camera so the player car AND both police cars read in one frame.
+    const car = game.traffic.parked.find((c) => c.type === 'muscle') || game.traffic.parked[0];
+    game.traffic.steal(car);
+    car.x = 40; car.z = 3.5; car.heading = 0; car.speed = 26;
+    car.sync();
+    game.player.enterCar(car);
+    game.wanted.addStars(3, 'shot');
+    const cop1 = game.wanted.spawnCop(20, -3.5);
+    cop1.x = 48; cop1.z = -4.5; cop1.heading = 0; cop1.sync();
+    const cop2 = game.wanted.spawnCop(8, 3.5);
+    cop2.x = 44; cop2.z = 9; cop2.heading = 0; cop2.sync();
+    game.missions.start(3);
+    game.missions.active.surviveLeft = 24;
+    game.hud.show();
+    game.state = 'playing';
+    cam.position.set(36, 5.5, 13);
+    cam.lookAt(68, 1.5, 0);
+    game.shotCameraLock = true;
+  } else if (name === '4-mission') {
+    // Quarry heist in progress: high locked camera looking down into the pit so
+    // the crates, the guards and Jax all read at once. Guards hold fire for the shot.
+    game.player.x = -256;
+    game.player.z = 224;
+    game.player.heading = Math.atan2(-(230 - 224), -270 - -256);
+    game.player.camYaw = game.player.heading;
+    game.player.group.position.set(game.player.x, 0, game.player.z);
+    game.player.group.rotation.y = game.player.heading;
+    game.missions.start(2);
+    game.missions.active.collected = 1;
+    game.cratesCollected = 1;
+    game.rivals.spawn(-270, 230, 2, rng);
+    for (const f of game.rivals.fighters) f.shootCooldown = 6;
+    game.combat.ammo = 18;
+    game.hud.show();
+    game.state = 'playing';
+    cam.position.set(-234, 20, 256);
+    cam.lookAt(-272, -3, 226);
+    game.shotCameraLock = true;
+  } else {
+    // 1-cover (default): wide golden-hour shot — muscle car on the highway,
+    // downtown skyline and water tower ahead, mesas on the rim, dust in the air.
+    const car = game.traffic.parked.find((c) => c.type === 'muscle') || game.traffic.parked[0];
+    car.x = -40; car.z = 3.5; car.heading = 0; car.sync();
+    game.player.x = -52;
+    game.player.z = 8;
+    game.player.heading = 0.4;
+    game.player.camYaw = 0.15;
+    game.player.group.position.set(game.player.x, 0, game.player.z);
+    game.player.group.rotation.y = game.player.heading;
+    game.missions.start(0);
+    game.hud.show();
+    game.state = 'playing';
+    // Pull the camera up and back for the wide establishing frame.
+    cam.position.set(-82, 15, 44);
+    cam.lookAt(80, 3, -20);
+    game.shotCameraLock = true;
+  }
 
-  // Called every frame after staging: let the scene settle, then flag ready.
-  SH.tick = function () {
-    if (!SH.name || SH.applied) return;
-    SH.frames++;
-    if (SH.frames >= 12) {
-      SH.applied = true;
+  // Snap the chase camera into place at once (the loop eases it over ~2s of game
+  // time, which is far too slow for a staged shot at low frame rates).
+  if (!game.shotCameraLock) game.player.updateCamera(1);
+
+  // Let the world settle a few frames, then signal the screenshot tool.
+  let frames = 0;
+  const tick = () => {
+    frames += 1;
+    if (frames >= 24) {
       window.__shotReady = true;
+      return;
     }
+    requestAnimationFrame(tick);
   };
-})();
+  requestAnimationFrame(tick);
+}

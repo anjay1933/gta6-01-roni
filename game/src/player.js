@@ -1,201 +1,192 @@
-// NEON HARBOR — player: Dana Cruz on foot (run, jump) and behind the wheel.
-// Third-person camera follows; E enters/exits cars.
-(function () {
-  var NH = window.NH;
-  var THREE = window.THREE;
+// DUSTLINE player: Jax Marlowe on foot (WASD relative to the camera, sprint,
+// jump, fists) and behind the wheel (WASD drives, E gets in and out). The
+// third-person camera trails behind, swings with the mouse, and pulls back and
+// up when driving so the road ahead stays readable.
 
-  var P = NH.player = {
-    group: null, legL: null, legR: null, armL: null, armR: null,
-    heading: 0, speed: 0, vy: 0, grounded: true,
-    onFoot: true, car: null,
-    health: 100, armor: 0, cash: NH.CFG.startCash, ammo: 24,
-    camYaw: 0, camPitch: 0.32, camDist: 7.5,
-    walkPhase: 0, invuln: 0
-  };
+import * as THREE from 'three';
+import { PLAYER } from './config.js';
+import { clamp, turnToward, angleDiff, dist2D } from './util.js';
+import { makePersonModel } from './people.js';
 
-  P.buildMesh = function () {
-    var g = new THREE.Group();
-    var jacket = new THREE.MeshLambertMaterial({ color: 0xff2e88 }); // Dana's pink jacket
-    var jeans = new THREE.MeshLambertMaterial({ color: 0x2a3a5e });
-    var skin = new THREE.MeshLambertMaterial({ color: 0xd8a080 });
-    var torso = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.95, 0.42), jacket);
-    torso.position.y = 1.25;
-    var head = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.44, 0.44), skin);
-    head.position.y = 1.98;
-    var hair = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.22, 0.48),
-      new THREE.MeshLambertMaterial({ color: 0x1a1a1a }));
-    hair.position.y = 2.22;
-    P.legL = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.75, 0.3), jeans);
-    P.legL.position.set(-0.19, 0.38, 0);
-    P.legR = P.legL.clone(); P.legR.position.x = 0.19;
-    P.armL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.8, 0.24), jacket);
-    P.armL.position.set(-0.48, 1.3, 0);
-    P.armR = P.armL.clone(); P.armR.position.x = 0.48;
-    g.add(torso); g.add(head); g.add(hair); g.add(P.legL); g.add(P.legR); g.add(P.armL); g.add(P.armR);
-    P.group = g;
-    NH.scene.add(g);
-  };
+export class Player {
+  constructor(scene, town) {
+    this.scene = scene;
+    this.town = town;
+    this.group = makePersonModel(0xc22e2e, 0xc98d68, { hat: true, pants: 0x2a3242 });
+    // Jax's red jacket reads at a distance; the hat is his silhouette.
+    this.group.position.set(-170, 0, 40);
+    scene.add(this.group);
+    this.x = -170;
+    this.z = 40;
+    this.heading = 0;          // model facing: forward = (cos h, -sin h)
+    this.camYaw = 0;           // camera look direction, same convention
+    this.camPitch = 0.32;
+    this.vy = 0;
+    this.y = 0;
+    this.onGround = true;
+    this.health = PLAYER.maxHealth;
+    this.armor = 0;
+    this.car = null;           // Car instance when driving, else null
+    this.speed = 0;
+    this.walkPhase = 0;
+    this.camera = null;
+  }
 
-  P.init = function (x, z) {
-    P.buildMesh();
-    P.group.position.set(x || 0, 0, z || 120);
-    P.heading = 0;
-    P.camYaw = 0;
-  };
+  get pos() { return { x: this.x, z: this.z }; }
 
-  P.damage = function (n) {
-    if (P.invuln > 0 || NH.state !== 'playing') return;
-    var absorbed = Math.min(P.armor, n);
-    P.armor -= absorbed;
-    P.health -= (n - absorbed);
-    P.invuln = 0.4;
-    NH.hud.flashDamage();
-    if (P.health <= 0) {
-      P.health = 0;
-      NH.main.gameOver('wasted');
+  attachCamera(camera) {
+    this.camera = camera;
+  }
+
+  look(dx, dy) {
+    this.camYaw -= dx * 0.0032;
+    this.camPitch = clamp(this.camPitch + dy * 0.0024, -0.12, 0.9);
+  }
+
+  /** Ground height under (x,z): the bridge deck sits 1.9 m up, the rest is 0. */
+  groundHeight(x, z) {
+    return x > 300 && x < 360 && Math.abs(z) < 6.5 ? 1.9 : 0;
+  }
+
+  /** Step the on-foot controller. `keys` is a Set of lowercase codes. */
+  stepOnFoot(dt, keys) {
+    // Camera-relative move direction.
+    const fwd = { x: Math.cos(this.camYaw), z: -Math.sin(this.camYaw) };
+    const right = { x: Math.sin(this.camYaw), z: Math.cos(this.camYaw) };
+    let mx = 0;
+    let mz = 0;
+    if (keys.has('keyw') || keys.has('arrowup')) { mx += fwd.x; mz += fwd.z; }
+    if (keys.has('keys') || keys.has('arrowdown')) { mx -= fwd.x; mz -= fwd.z; }
+    if (keys.has('keyd') || keys.has('arrowright')) { mx += right.x; mz += right.z; }
+    if (keys.has('keya') || keys.has('arrowleft')) { mx -= right.x; mz -= right.z; }
+    const len = Math.hypot(mx, mz);
+    const sprint = keys.has('shiftleft') || keys.has('shiftright');
+    const speed = sprint ? PLAYER.sprintSpeed : PLAYER.walkSpeed;
+    if (len > 0.01) {
+      mx /= len;
+      mz /= len;
+      const targetHeading = Math.atan2(-mz, mx);
+      this.heading = turnToward(this.heading, targetHeading, 10 * dt);
+      this.x += mx * speed * dt;
+      this.z += mz * speed * dt;
+      this.speed = speed;
+      this.walkPhase += dt * speed * 2.4;
+      this.group.userData.legL.rotation.x = Math.sin(this.walkPhase) * 0.6;
+      this.group.userData.legR.rotation.x = -Math.sin(this.walkPhase) * 0.6;
+    } else {
+      this.speed = 0;
+      this.group.userData.legL.rotation.x *= 0.8;
+      this.group.userData.legR.rotation.x *= 0.8;
     }
-  };
-
-  P.heal = function (n) { P.health = Math.min(100, P.health + n); };
-
-  P.enterCar = function (car) {
-    if (!car) return;
-    P.onFoot = false; P.car = car;
-    car.driver = 'player';
-    NH.vehicles.playerCar = car;
-    P.group.visible = false;
-    NH.audio.engine(true, 0);
-    NH.hud.message('You took the ' + car.def.name);
-  };
-
-  P.exitCar = function () {
-    var car = P.car;
-    if (!car) return;
-    var fx = Math.sin(car.heading), fz = Math.cos(car.heading);
-    P.group.position.set(
-      car.group.position.x - fx * 2.5,
-      NH.city.groundHeight(car.group.position.x, car.group.position.z),
-      car.group.position.z - fz * 2.5
-    );
-    P.heading = car.heading;
-    P.group.visible = true;
-    P.onFoot = true; P.car = null;
-    car.driver = 'parked';
-    NH.vehicles.playerCar = null;
-    NH.audio.engine(false, 0);
-  };
-
-  // Find the nearest enterable car within 4 units.
-  P.nearestCar = function () {
-    var best = null, bd = 4.5;
-    NH.vehicles.cars.forEach(function (c) {
-      if (c.driver === 'police') return;
-      var d = NH.dist2d(P.group.position.x, P.group.position.z, c.group.position.x, c.group.position.z);
-      if (d < bd) { bd = d; best = c; }
-    });
-    return best;
-  };
-
-  P.update = function (dt) {
-    if (P.invuln > 0) P.invuln -= dt;
-    var inp = NH.input;
-    P.camYaw += inp.yawDelta;
-    P.camPitch = NH.clamp(P.camPitch + inp.pitchDelta, -0.15, 0.9);
-
-    if (P.onFoot) {
-      var ax = inp.moveAxis(NH.camYaw || Math.PI);
-      var sprint = inp.keys['ShiftLeft'] || inp.keys['ShiftRight'];
-      var spd = sprint ? NH.CFG.sprintSpeed : NH.CFG.walkSpeed;
-      var len = Math.sqrt(ax.x * ax.x + ax.z * ax.z);
-      if (len > 0.01) {
-        P.heading = Math.atan2(ax.x, ax.z);
-        P.speed = spd;
-        var pos = P.group.position;
-        var nx = pos.x + (ax.x / len) * spd * dt;
-        var nz = pos.z + (ax.z / len) * spd * dt;
-        nx = NH.clamp(nx, -178, 178); nz = NH.clamp(nz, -178, 178);
-        var p = { x: nx, z: nz };
-        NH.city.collide(p, 0.6);
-        pos.x = p.x; pos.z = p.z;
-        P.walkPhase += dt * spd * 1.6;
-        var sw = Math.sin(P.walkPhase) * 0.6;
-        P.legL.rotation.x = sw; P.legR.rotation.x = -sw;
-        P.armL.rotation.x = -sw * 0.8; P.armR.rotation.x = sw * 0.8;
-      } else {
-        P.speed = 0;
-        P.legL.rotation.x *= 0.8; P.legR.rotation.x *= 0.8;
-        P.armL.rotation.x *= 0.8; P.armR.rotation.x *= 0.8;
-      }
-      // jump
-      if (inp.consumeKey('Space') && P.grounded) { P.vy = NH.CFG.jumpSpeed; P.grounded = false; }
-      if (!P.grounded) {
-        P.vy -= NH.CFG.gravity * dt;
-        P.group.position.y += P.vy * dt;
-        var gy = NH.city.groundHeight(P.group.position.x, P.group.position.z);
-        if (P.group.position.y <= gy) { P.group.position.y = gy; P.vy = 0; P.grounded = true; }
-      }
-      P.group.rotation.y = P.heading;
-      // enter car
-      if (inp.consumeKey('KeyE')) {
-        var car = P.nearestCar();
-        if (car) {
-          var wasParked = car.wasParked;
-          P.enterCar(car);
-          if (wasParked) NH.police.addStars(1, 'car theft');
-          car.wasParked = false;
-        }
-      }
-      // run over check is done in police.js (cars vs peds); on foot, check pickups in combat.js
-    } else if (P.car) {
-      var car = P.car;
-      var throttle = 0;
-      if (inp.keys['KeyW'] || inp.keys['ArrowUp']) throttle += 1;
-      if (inp.keys['KeyS'] || inp.keys['ArrowDown']) throttle -= 1;
-      var steer = 0;
-      if (inp.keys['KeyA'] || inp.keys['ArrowLeft']) steer -= 1;
-      if (inp.keys['KeyD'] || inp.keys['ArrowRight']) steer += 1;
-      NH.vehicles.drive(car, throttle, steer, dt);
-      P.heading = car.heading;
-      P.group.position.copy(car.group.position);
-      NH.audio.engine(true, Math.abs(car.speed) / car.def.top);
-      if (inp.consumeKey('KeyE')) P.exitCar();
-      // hit pedestrians while driving
-      NH.traffic.peds.forEach(function (ped) {
-        if (ped.dead) return;
-        var d = NH.dist2d(car.group.position.x, car.group.position.z, ped.group.position.x, ped.group.position.z);
-        if (d < 2.2 && Math.abs(car.speed) > 4) {
-          ped.dead = true;
-          ped.group.rotation.x = -Math.PI / 2;
-          ped.group.position.y = 0.3;
-          NH.traffic.scare(ped.group.position.x, ped.group.position.z, 25);
-          NH.police.addStars(1, 'hit pedestrian');
-          NH.hud.message('You hit a pedestrian!');
-        }
-      });
+    // Jump + gravity, landing on the ground — or on the bridge deck.
+    if ((keys.has('space')) && this.onGround) {
+      this.vy = PLAYER.jumpSpeed;
+      this.onGround = false;
     }
-
-    // Camera: third person behind the player/car, mouse orbit offset decays.
-    var target = P.group.position;
-    var dist = P.onFoot ? P.camDist : (P.driveCamDist || 10.5);
-    var height = P.onFoot ? 3.2 : 4.6;
-    // orbit offset from mouse drag, decays back to straight behind the player
-    var orbit = NH._orbit || 0;
-    orbit += inp.yawDelta;
-    orbit *= Math.pow(0.4, dt);
-    NH._orbit = orbit;
-    var cy = P.heading + Math.PI + orbit;
-    // pull the camera in if a building blocks the view (camera collision)
-    var cpos = null;
-    for (var tries = 0; tries < 5; tries++) {
-      var cx = target.x + Math.sin(cy) * dist * Math.cos(P.camPitch);
-      var cz = target.z + Math.cos(cy) * dist * Math.cos(P.camPitch);
-      var cyy = target.y + height + Math.sin(P.camPitch) * dist * 0.5;
-      if (!NH.city.collide({ x: cx, z: cz }, 0.5)) { cpos = { x: cx, y: cyy, z: cz }; break; }
-      dist *= 0.65;
+    const groundY = this.groundHeight(this.x, this.z);
+    if (!this.onGround) {
+      this.vy -= 24 * dt;
+      this.y += this.vy * dt;
+      if (this.y <= groundY) { this.y = groundY; this.vy = 0; this.onGround = true; }
+    } else {
+      this.y = groundY;
     }
-    if (!cpos) cpos = { x: target.x, y: target.y + 3, z: target.z };
-    NH.camera.position.set(cpos.x, cpos.y, cpos.z);
-    NH.camera.lookAt(target.x, target.y + 1.6, target.z);
-    NH.camYaw = cy;
-  };
-})();
+    // Buildings are solid; the canyon is not walkable past x = 300 (no bridge on foot? bridge is fine).
+    const fixed = this.town.resolveCircle(this.x, this.z, PLAYER.radius);
+    this.x = fixed.x;
+    this.z = fixed.z;
+    this.x = clamp(this.x, -445, 445);
+    this.z = clamp(this.z, -445, 445);
+    this.group.position.set(this.x, this.y, this.z);
+    this.group.rotation.y = this.heading;
+  }
+
+  /** Enter a car: hide the walker, snap the camera behind the car. */
+  enterCar(car) {
+    this.car = car;
+    this.group.visible = false;
+    this.x = car.x;
+    this.z = car.z;
+  }
+
+  /** Step out on the driver's side. */
+  exitCar() {
+    if (!this.car) return;
+    const car = this.car;
+    const sx = car.x + -Math.sin(car.heading) * -2.4;
+    const sz = car.z + Math.cos(car.heading) * -2.4;
+    this.car = null;
+    this.group.visible = true;
+    this.x = sx;
+    this.z = sz;
+    this.y = this.groundHeight(sx, sz);
+    this.heading = car.heading;
+    this.group.position.set(this.x, 0, this.z);
+    this.group.rotation.y = this.heading;
+  }
+
+  /** Drive the current car with WASD. */
+  stepDriving(dt, keys) {
+    if (!this.car) return;
+    let throttle = 0;
+    if (keys.has('keyw') || keys.has('arrowup')) throttle = 1;
+    if (keys.has('keys') || keys.has('arrowdown')) throttle = -0.7;
+    let steer = 0;
+    if (keys.has('keya') || keys.has('arrowleft')) steer = -1;
+    if (keys.has('keyd') || keys.has('arrowright')) steer = 1;
+    // Space is the handbrake.
+    if (keys.has('space')) throttle = throttle >= 0 ? throttle * 0.3 : throttle;
+    this.car.drive(throttle, steer, dt);
+    // Solid buildings stop the car; the canyon gap stops it too.
+    const fixed = this.town.resolveCircle(this.car.x, this.car.z, 2.2);
+    if (fixed.x !== this.car.x || fixed.z !== this.car.z) {
+      this.car.x = fixed.x;
+      this.car.z = fixed.z;
+      if (Math.abs(this.car.speed) > 6) this.car.addDamage(0.08);
+      this.car.speed *= 0.4;
+      this.car.sync();
+    }
+    this.car.x = clamp(this.car.x, -445, 445);
+    this.car.z = clamp(this.car.z, -445, 445);
+    // Keep the car on the bridge deck when crossing the canyon.
+    if (this.car.x > 296 && this.car.x < 364) {
+      this.car.z = clamp(this.car.z, -6.5, 6.5);
+      this.car.sync();
+    }
+    this.x = this.car.x;
+    this.z = this.car.z;
+    this.speed = Math.abs(this.car.speed);
+  }
+
+  /** Third-person camera: behind the player (or car), easing toward its spot. */
+  updateCamera(dt) {
+    if (!this.camera) return;
+    const driving = !!this.car;
+    const dist = driving ? 11.5 : 7.5;
+    const height = driving ? 4.6 : 3.4;
+    const anchorX = driving ? this.car.x : this.x;
+    const anchorZ = driving ? this.car.z : this.z;
+    const anchorY = driving ? 1.2 : 1.6 + this.y;
+    // When driving the camera follows the car's heading; on foot it follows the mouse.
+    const yaw = driving ? this.car.heading : this.camYaw;
+    const cx = anchorX - Math.cos(yaw) * dist;
+    const cz = anchorZ + Math.sin(yaw) * dist;
+    const cy = anchorY + Math.tan(this.camPitch) * dist * 0.55 + (driving ? 0.4 : 0);
+    const k = 1 - Math.pow(0.0001, dt); // frame-rate independent ease
+    this.camera.position.x += (cx - this.camera.position.x) * k;
+    this.camera.position.y += (cy - this.camera.position.y) * k;
+    this.camera.position.z += (cz - this.camera.position.z) * k;
+    this.camera.lookAt(anchorX + Math.cos(yaw) * 6, anchorY + 0.4, anchorZ - Math.sin(yaw) * 6);
+  }
+
+  damage(amount) {
+    let rest = amount;
+    if (this.armor > 0) {
+      const absorbed = Math.min(this.armor, rest * 0.6);
+      this.armor -= absorbed;
+      rest -= absorbed;
+    }
+    this.health -= rest;
+    return this.health <= 0;
+  }
+}

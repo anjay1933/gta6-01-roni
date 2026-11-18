@@ -1,73 +1,90 @@
-// NEON HARBOR — config: constants, districts, car types, mission data.
-// All shared state lives on window.NH; every module adds its own section.
-(function () {
-  var NH = window.NH = window.NH || {};
+// DUSTLINE tuning: every number that shapes the town, the cars, the law and the jobs.
+// One place to balance the game without hunting through the systems.
 
-  // Seeded RNG (deterministic city + staged screenshots).
-  function mulberry32(a) {
-    return function () {
-      a |= 0; a = (a + 0x6D2B79F5) | 0;
-      var t = Math.imul(a ^ (a >>> 15), 1 | a);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-  }
-  var params = new URLSearchParams(location.search);
-  NH.seed = parseInt(params.get('seed') || '1', 10) || 1;
-  NH.rng = mulberry32(NH.seed);
-  NH.rand = function (a, b) { return a + NH.rng() * (b - a); };
-  NH.randInt = function (a, b) { return Math.floor(NH.rand(a, b + 1)); };
-  NH.randPick = function (arr) { return arr[Math.floor(NH.rng() * arr.length)]; };
-  NH.clamp = function (v, a, b) { return v < a ? a : v > b ? b : v; };
-  NH.lerp = function (a, b, t) { return a + (b - a) * t; };
-  NH.dist2d = function (ax, az, bx, bz) { var dx = ax - bx, dz = az - bz; return Math.sqrt(dx * dx + dz * dz); };
+export const WORLD = {
+  size: 900,            // ground plane, metres across
+  highwayZ: 0,          // main east-west highway runs along x at z = 0
+  highwayHalfWidth: 7,
+  bridgeX: 300,         // canyon bridge starts here (east edge)
+  canyonX: 330,         // canyon gap centre
+  quarry: { x: -270, z: 230 },
+  downtown: { x0: -150, x1: 150, z0: -190, z1: -50 },
+  gasStation: { x: -190, z: 26 },
+  motel: { x: -120, z: -26 },
+  diner: { x: 90, z: 26 },
+  garage: { x: 170, z: -26 },   // respray garage (clears wanted for cash)
+  waterTower: { x: 0, z: -120 },
+  fogColor: 0xe8a05c,
+  sunColor: 0xffb36b,
+  sunIntensity: 2.6,
+  hemiSky: 0xffd9a0,
+  hemiGround: 0x7a4a28,
+};
 
-  NH.CFG = {
-    worldHalf: 180,          // playable square: -180..180 on x and z
-    streetGap: 40,           // streets every 40 units
-    roadW: 9,                // road width
-    walkW: 3,                // sidewalk width each side
-    gravity: 22,
-    walkSpeed: 7,
-    sprintSpeed: 11,
-    jumpSpeed: 8.5,
-    maxWanted: 5,
-    paynsprayCost: 150,
-    startCash: 200
-  };
+export const PLAYER = {
+  walkSpeed: 7,
+  sprintSpeed: 11.5,
+  jumpSpeed: 8.5,
+  accel: 42,
+  radius: 0.7,
+  maxHealth: 100,
+  maxArmor: 100,
+  pistolAmmoStart: 24,
+  pistolDamage: 34,
+  punchDamage: 12,
+  punchRange: 2.2,
+  punchCooldown: 0.45,
+  shootCooldown: 0.22,
+};
 
-  NH.DISTRICTS = [
-    { name: 'DOCKS', x0: -180, x1: -100, z0: -180, z1: 180, color: 0x2a4a6b },
-    { name: 'DOWNTOWN', x0: -100, x1: 100, z0: -180, z1: 100, color: 0x6b2a5e },
-    { name: 'BEACH ROAD', x0: -180, x1: 180, z0: 100, z1: 180, color: 0x1a5e6b },
-    { name: 'NORTH BRIDGE', x0: -180, x1: 180, z0: -180, z1: -140, color: 0x3a3a55 }
-  ];
+export const CARS = {
+  // name, top speed (m/s), accel, grip, colour, body length
+  sedan:  { label: 'Sedan',      top: 34, accel: 15, grip: 2.6, color: 0x7a8ba0, len: 4.4 },
+  pickup: { label: 'Pickup',     top: 30, accel: 13, grip: 2.2, color: 0xa8542e, len: 4.8 },
+  muscle: { label: 'Muscle',     top: 42, accel: 20, grip: 2.0, color: 0xc22e2e, len: 4.6 },
+  coupe:  { label: 'Coupe',      top: 38, accel: 17, grip: 2.9, color: 0x2e6db0, len: 4.2 },
+  truck:  { label: 'Box Truck',  top: 24, accel: 9,  grip: 1.8, color: 0xd8cdb0, len: 6.2 },
+  police: { label: 'Police',     top: 40, accel: 19, grip: 2.8, color: 0x1c1e24, len: 4.5 },
+};
 
-  // Car types: speed in m/s, accel, turn rate, body color, value.
-  NH.CAR_TYPES = {
-    sedan:  { top: 26, accel: 14, turn: 1.9, color: 0x8a97a8, name: 'Sedan' },
-    taxi:   { top: 24, accel: 13, turn: 1.9, color: 0xf2c200, name: 'Taxi' },
-    truck:  { top: 19, accel: 9,  turn: 1.3, color: 0x4a6b8a, name: 'Truck' },
-    sport:  { top: 36, accel: 20, turn: 2.4, color: 0xd21f5e, name: 'Sport' },
-    van:    { top: 21, accel: 10, turn: 1.5, color: 0x7a7a72, name: 'Van' },
-    police: { top: 30, accel: 17, turn: 2.2, color: 0x1a1a2e, name: 'Police' }
-  };
+export const WANTED = {
+  maxStars: 5,
+  crimeCarTheft: 1,
+  crimeHitPed: 1,
+  crimeShootNearCop: 1,
+  crimeKillCop: 2,
+  decaySeconds: 9,      // seconds out of cop sight before one star drops
+  resprayCost: 150,
+  copChaseSpeed: 36,
+  copRamDamage: 6,
+  roadblockAt: 3,
+};
 
-  // The 6-mission story arc for Dana Cruz and the Harbor Crew.
-  NH.MISSIONS = [
-    { id: 1, title: 'FIRST PICKUP', brief: 'Meet the crew contact at Pier 9. Grab the package and bring it back to the garage.',
-      type: 'goto', target: { x: -150, z: 60 }, reward: 300 },
-    { id: 2, title: 'BRIDGE RUN', brief: 'Smuggle the package across the North Bridge. A tail car is on you — lose it or outrun it.',
-      type: 'deliver', target: { x: 120, z: -160 }, reward: 500, timed: 90 },
-    { id: 3, title: 'CONTAINER YARD', brief: 'Steal the sport car from the container yard. Two armed guards watch it. Bring it to the garage.',
-      type: 'steal', target: { x: -140, z: -40 }, reward: 800 },
-    { id: 4, title: 'HOT GETAWAY', brief: 'The cops are onto you. Reach the safehouse with 3 stars on your tail — then lose them.',
-      type: 'escape', target: { x: 60, z: 120 }, reward: 1000, wanted: 3 },
-    { id: 5, title: 'DOWNTOWN SHOOTOUT', brief: 'Rival crew hit the plaza. Clear out all six shooters and protect the crew.',
-      type: 'shootout', target: { x: 40, z: 40 }, reward: 1500, enemies: 6 },
-    { id: 6, title: 'HARBOR ESCAPE', brief: 'Final run. Reach the speedboat at the pier with the whole harbor after you.',
-      type: 'escape', target: { x: -165, z: 150 }, reward: 2500, wanted: 4 }
-  ];
+export const MISSIONS = [
+  { id: 1, name: 'First Pickup', giver: 'Dusty', reward: 250,
+    text: 'Drive to the gas station and pick up the package',
+    target: { x: -190, z: 26 }, kind: 'goto' },
+  { id: 2, name: 'Bridge Run', giver: 'Dusty', reward: 400,
+    text: 'Smuggle the package across the canyon bridge — the law is watching',
+    target: { x: 380, z: 0 }, kind: 'goto', tail: true },
+  { id: 3, name: 'Quarry Heist', giver: 'Mara', reward: 600,
+    text: 'Steal 3 crates from the quarry. Guards shoot on sight',
+    target: { x: -270, z: 230 }, kind: 'collect', count: 3 },
+  { id: 4, name: 'Hot Getaway', giver: 'Mara', reward: 750,
+    text: 'Lose the heat: reach the diner with 3 stars and survive 30 seconds',
+    target: { x: 90, z: 26 }, kind: 'survive', seconds: 30 },
+  { id: 5, name: 'Main Street', giver: 'Vic', reward: 900,
+    text: 'Clear the ambush on main street — take down 5 of Vic\u2019s rivals',
+    target: { x: 0, z: -120 }, kind: 'eliminate', count: 5 },
+  { id: 6, name: 'Dustline', giver: 'Vic', reward: 1500,
+    text: 'Final escape: outrun the roadblock and cross the east bridge',
+    target: { x: 420, z: 0 }, kind: 'escape' },
+];
 
-  NH.SAVE_KEY = 'neon-harbor-save-v1';
-})();
+export const PICKUPS = {
+  health: { amount: 40, color: 0x37d67a, respawn: 45 },
+  armor:  { amount: 50, color: 0x4fa8ff, respawn: 60 },
+  ammo:   { amount: 24, color: 0xffd76a, respawn: 40 },
+};
+
+export const SAVE_KEY = 'dustline-save-v1';
