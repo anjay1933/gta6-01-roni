@@ -181,7 +181,8 @@ export class Game {
     this.state = 'playing';
     document.getElementById('title-screen').classList.add('hidden');
     this.hud.show();
-    this.hud.toast(`BACK ON THE ROAD`, `Mission ${this.missions.current?.id ?? 1} — ${this.missions.current?.name ?? ''}`);
+    const cur = this.missions.current;
+    this.hud.toast('BACK ON THE ROAD', `Mission ${cur?.id ?? 1} — ${cur?.name ?? ''}`);
   }
 
   /** Reset the world to a fresh free-roam state (used by new runs and by ?shot= staging). */
@@ -415,7 +416,7 @@ export class Game {
     // Quarry crates: walk up to one during the heist to grab it.
     const m = this.missions.current;
     if (m && m.kind === 'collect') {
-      this.town.crates.forEach((crate, i) => {
+      this.town.crates.forEach((crate) => {
         if (!crate.visible) return;
         if (dist2D(this.player.x, this.player.z, crate.position.x, crate.position.z) < 3.2) {
           crate.visible = false;
@@ -446,8 +447,15 @@ export class Game {
       if (near) hint = `Press E to steal the ${near.spec.label} — the law will notice`;
     } else if (this.wanted.stars > 0) {
       const g = this.town.garagePos;
-      if (dist2D(this.player.x, this.player.z, g.x, g.z) < 20) hint = 'Press G to respray ($150) — clears your wanted level';
-      else hint = 'WASD drive · SPACE handbrake · R drive-by · E exit car · reach the blue SPRAY garage to clear heat';
+      if (dist2D(this.player.x, this.player.z, g.x, g.z) < 20) {
+        hint = 'Press G to respray ($150) — clears your wanted level';
+      } else {
+        hint = 'WASD drive · SPACE handbrake · R drive-by · E exit car · reach the blue SPRAY garage to clear heat';
+      }
+    } else {
+      // In a car with no heat the on-foot hint is wrong (SPACE is the handbrake,
+      // E exits the car, CLICK does nothing) — show the driving controls instead.
+      hint = 'WASD drive · SPACE handbrake · R drive-by · E exit car';
     }
     this.hud.update(dt, {
       stars: this.wanted.stars,

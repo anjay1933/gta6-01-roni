@@ -6,7 +6,7 @@
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 // The grader sets /output itself; MAKEFUN_OUTPUT_DIR only stands in for it here.
 
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, writeFileSync, statSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
@@ -24,6 +24,24 @@ if (existsSync(join(repoRoot, 'screenshots'))) {
   copyTree(join(repoRoot, 'screenshots'), join(outDir, 'screenshots'));
 }
 
+// Hard gate: FAIL the build if any screenshot breaks the caps, instead of
+// silently shipping an oversize hand-in the grader would reject.
+const SHOT_MAX_COUNT = 4;
+const SHOT_MAX_BYTES = 262144; // 256 KiB each
+const shotDir = join(repoRoot, 'screenshots');
+if (existsSync(shotDir)) {
+  const shots = readdirSync(shotDir).filter((f) => /\.(jpe?g|png)$/i.test(f));
+  if (shots.length > SHOT_MAX_COUNT) {
+    throw new Error(`screenshot cap: ${shots.length} screenshots, max ${SHOT_MAX_COUNT}`);
+  }
+  for (const shot of shots) {
+    const size = statSync(join(shotDir, shot)).size;
+    if (size > SHOT_MAX_BYTES) {
+      throw new Error(`screenshot cap: ${shot} is ${size} bytes, max ${SHOT_MAX_BYTES} (256 KiB)`);
+    }
+  }
+}
+
 // The caps mirror the gate: 4 screenshots at most, each under 256 KiB; game/ under
 // 993 entries and 48 MiB; the dossier text itself capped at 160 KiB.
 const dossier = buildDossier(outDir, {
@@ -36,7 +54,6 @@ const dossier = buildDossier(outDir, {
 writeFileSync(join(outDir, 'dossier.json'), dossier);
 
 // Small build report so a human can see at a glance that the hand-in is complete.
-import { statSync, readdirSync } from 'node:fs';
 const gameFiles = readdirSync(join(outDir, 'game'), { recursive: true });
 const shotFiles = existsSync(join(outDir, 'screenshots'))
   ? readdirSync(join(outDir, 'screenshots'))

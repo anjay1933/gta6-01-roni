@@ -30,8 +30,9 @@ No build step, no network requests, no fetched assets: Three.js is vendored unde
 ## Controls
 
 - **W A S D** move · **Mouse** look/aim · **Shift** sprint · **Space** jump
-- **E** enter/exit car · **Click** shoot / drive-by · **F** punch
-- **P / Esc** pause · **M** mission details
+- **E** enter/exit car · **Click** shoot · **F** punch
+- **R** drive-by while driving · **G** respray at the blue SPRAY garage ($150, clears wanted)
+- **P / Esc** pause · **M** mute
 
 ## Files
 

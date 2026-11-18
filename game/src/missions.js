@@ -89,16 +89,25 @@ export class MissionDirector {
     const m = this.current;
     if (!m || !this.active) return '';
     if (m.kind === 'collect') return `Crates ${this.active.collected}/${m.count}`;
-    if (m.kind === 'eliminate' && this.active.rivalsSpawned) return `Rivals down ${this.active.eliminated}/${m.count}`;
-    if (m.kind === 'survive' && this.active.inZone) return `Hold on ${Math.ceil(this.active.surviveLeft)}s`;
+    if (m.kind === 'eliminate' && this.active.rivalsSpawned) {
+      return `Rivals down ${this.active.eliminated}/${m.count}`;
+    }
+    if (m.kind === 'survive' && this.active.inZone) {
+      return `Hold on ${Math.ceil(this.active.surviveLeft)}s`;
+    }
+    if (m.kind === 'survive') {
+      // The timer only runs inside the zone with 3+ stars, and nothing says so:
+      // name the gate before the player is in the zone, not after.
+      return 'Reach the diner with 3★ heat';
+    }
     return '';
   }
 
   /**
    * Per-frame progress. `ctx` carries the live game state the jobs read:
    * { px, pz, inCar, speed, stars, rivals, cratesCollected }.
-   * Returns an event string when something happens ('complete', 'failed', 'tail', 'rivals')
-   * or null. The caller applies rewards and toasts on 'complete'.
+   * Returns an event string when something happens ('complete', 'tail',
+   * 'rivals', 'roadblock') or null. The caller applies rewards on 'complete'.
    */
   update(dt, ctx) {
     const m = this.current;
