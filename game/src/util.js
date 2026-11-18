@@ -1,13 +1,20 @@
-// FROSTLINE — small helpers shared by every system. No dependencies.
+// FROSTLINE — tiny shared helpers. No dependencies, used by every system.
 
-export function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+export function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
 export function lerp(a, b, t) { return a + (b - a) * t; }
+
+// Random float: rand(5) -> 0..5, rand(2, 6) -> 2..6.
 export function rand(a = 1, b) { return b === undefined ? Math.random() * a : a + Math.random() * (b - a); }
 export function randi(a, b) { return Math.floor(rand(a, b + 1)); }
 export function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
-export function dist2(ax, az, bx, bz) { const dx = ax - bx, dz = az - bz; return Math.sqrt(dx * dx + dz * dz); }
 
-// Shortest signed turn from angle a toward angle b.
+// Flat distance between two points on the ground plane.
+export function dist2(ax, az, bx, bz) {
+  const dx = ax - bx, dz = az - bz;
+  return Math.sqrt(dx * dx + dz * dz);
+}
+
+// Shortest signed turn from angle a toward angle b, in (-PI, PI].
 export function angleDiff(a, b) {
   let d = (b - a) % (Math.PI * 2);
   if (d > Math.PI) d -= Math.PI * 2;
@@ -16,7 +23,7 @@ export function angleDiff(a, b) {
 }
 export function angleLerp(a, b, t) { return a + angleDiff(a, b) * clamp(t, 0, 1); }
 
-// Deterministic RNG for staged screenshots (mulberry32).
+// Seeded RNG (mulberry32) so staged screenshots look the same every run.
 export function mulberry32(seed) {
   let s = seed >>> 0;
   return function () {
@@ -27,17 +34,16 @@ export function mulberry32(seed) {
   };
 }
 
-// Distance from point (px,pz) to segment (ax,az)-(bx,bz).
+// Distance from point (px, pz) to the segment (ax, az)-(bx, bz).
 export function distToSegment(px, pz, ax, az, bx, bz) {
   const dx = bx - ax, dz = bz - az;
   const len2 = dx * dx + dz * dz;
   let t = len2 ? ((px - ax) * dx + (pz - az) * dz) / len2 : 0;
   t = clamp(t, 0, 1);
-  const cx = ax + dx * t, cz = az + dz * t;
-  return dist2(px, pz, cx, cz);
+  return dist2(px, pz, ax + dx * t, az + dz * t);
 }
 
-// A glowing sign texture drawn on a canvas (no image files, no network).
+// A glowing shop sign drawn on a canvas — no image files, no network.
 export function makeSignTexture(text, color = '#ffd27a', bg = '#141824') {
   const c = document.createElement('canvas');
   c.width = 512; c.height = 128;
@@ -55,7 +61,7 @@ export function makeSignTexture(text, color = '#ffd27a', bg = '#141824') {
   return tex;
 }
 
-// Small label sprite texture (mission beacon text, floating tags).
+// Small dark label sprite (mission beacon text, floating tags).
 export function makeLabelTexture(text, color = '#ffffff') {
   const c = document.createElement('canvas');
   c.width = 256; c.height = 64;

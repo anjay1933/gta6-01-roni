@@ -1,30 +1,31 @@
 // FROSTLINE — staged screenshot setups: ?shot=cover|foot|chase|mission&seed=N
-// Each stage places the player, camera and world state deterministically,
-// then sets window.__shotReady so the screenshot tool knows the frame is done.
+// Each stage places the player, the camera and the world state, then raises
+// window.__shotReady after a few frames so the capture tool knows it is done.
 import { heightAt } from './world.js';
 import { Car } from './vehicles.js';
 
 export function applyShot(G, name) {
   const p = G.player;
-  const setCam = (yaw, pitch) => { p.camYaw = yaw; p.camPitch = pitch; };
-  const placeOnFoot = (x, z, yaw) => {
+  const aimCam = (yaw, pitch) => { p.camYaw = yaw; p.camPitch = pitch; };
+  const standAt = (x, z, yaw) => {
     if (p.inCar) p.exitCar();
     p.pos.set(x, heightAt(x, z), z);
     p.angle = yaw;
-    setCam(yaw + Math.PI, 0.3);
+    aimCam(yaw + Math.PI, 0.3);
   };
-  const placeInCar = (car, yaw) => {
+  const sitIn = (car, yaw) => {
     if (p.inCar) p.exitCar();
     p.enterCar(car);
     car.angle = yaw;
     car.speed = 0;
-    setCam(yaw + Math.PI, 0.3);
+    aimCam(yaw + Math.PI, 0.3);
   };
 
   if (name === 'cover') {
-    // Wide dusk shot: player in the sport coupe on Main Street, lodge + aurora behind.
+    // Wide dusk shot: the player in the sport coupe on Main Street, the lodge
+    // and the aurora behind.
     const car = G.cars.find((c) => c.type === 'sport' && !c.destroyed) || G.cars[0];
-    placeInCar(car, Math.PI / 2);
+    sitIn(car, Math.PI / 2);
     car.x = 20; car.z = 0;
     car.mesh.position.set(car.x, heightAt(car.x, car.z), car.z);
     G.state = 'playing';
@@ -32,14 +33,14 @@ export function applyShot(G, name) {
     G.missions.updateMarker();
   } else if (name === 'foot') {
     // On foot by the lodge, pedestrians and pines around.
-    placeOnFoot(52, -48, 2.6);
+    standAt(52, -48, 2.6);
     G.state = 'playing';
     G.missions.index = 0; G.missions.step = 0; G.missions.active = true;
     G.missions.updateMarker();
   } else if (name === 'chase') {
-    // Police chase on the pass road, 3 stars, two patrol cars behind.
+    // Police chase on the pass road: 3 stars, two patrol cars behind.
     const car = G.cars.find((c) => c.type === 'suv' && !c.destroyed) || G.cars[0];
-    placeInCar(car, Math.PI);
+    sitIn(car, Math.PI);
     car.x = 150; car.z = 40; car.speed = 18;
     car.mesh.position.set(car.x, heightAt(car.x, car.z), car.z);
     G.wanted.setStars(3);
@@ -53,17 +54,17 @@ export function applyShot(G, name) {
     G.missions.index = 3; G.missions.step = 0; G.missions.active = true;
     G.missions.updateMarker();
   } else if (name === 'mission') {
-    // Mission 3: the snowcat at the lift depot, marker lit. Player stands
+    // Mission 3: the snowcat at the lift depot, marker lit. The player stands
     // north-east of the depot; yaw -2.13 faces the snowcat (facing is
     // (sin(yaw), cos(yaw))), so the snowcat, the amber beacon and the depot
     // are all in frame with clear ground behind the camera.
     G.missions.index = 2; G.missions.step = 0;
     G.missions.start();
-    placeOnFoot(64, -128, -2.13);
+    standAt(64, -128, -2.13);
     G.state = 'playing';
   }
 
-  // Hide the start screen, show the HUD, then signal readiness after 2 frames.
+  // Hide the start screen, show the HUD, then signal readiness after 3 frames.
   document.getElementById('start-screen').style.display = 'none';
   document.getElementById('hud').style.display = 'block';
   G.audio.init();

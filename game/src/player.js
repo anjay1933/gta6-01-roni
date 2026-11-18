@@ -50,7 +50,7 @@ export class Player {
 
   // On-foot step. input uses the main.js keys: forward/back/left/right/sprint/jump.
   updateOnFoot(dt, input) {
-    const sprint = input.sprint ? CFG.sprintSpeed : CFG.walkSpeed;
+    const speed = input.sprint ? CFG.sprintSpeed : CFG.walkSpeed;
     // Movement is relative to the camera yaw.
     const sin = Math.sin(this.camYaw), cos = Math.cos(this.camYaw);
     let mx = 0, mz = 0;
@@ -62,11 +62,11 @@ export class Player {
     this.moving = len > 0;
     if (len > 0) {
       mx /= len; mz /= len;
-      this.pos.x += mx * sprint * dt;
-      this.pos.z += mz * sprint * dt;
+      this.pos.x += mx * speed * dt;
+      this.pos.z += mz * speed * dt;
       this.angle = Math.atan2(mx, mz);
     }
-    // Ground + jump.
+    // Ground and jump.
     const ground = heightAt(this.pos.x, this.pos.z);
     if (input.jump && this.onGround) { this.vel.y = CFG.jumpSpeed; this.onGround = false; }
     if (!this.onGround) {
@@ -74,12 +74,12 @@ export class Player {
       this.pos.y += this.vel.y * dt;
       if (this.pos.y <= ground) { this.pos.y = ground; this.vel.y = 0; this.onGround = true; }
     } else this.pos.y = ground;
-    // Keep inside the map and out of buildings/trees.
+    // Keep inside the map and out of buildings and trees.
     this.pos.x = clamp(this.pos.x, -340, 340);
     this.pos.z = clamp(this.pos.z, -340, 340);
     const [cx, cz] = collide(this.pos.x, this.pos.z, 0.6, this.G.world.colliders);
     this.pos.x = cx; this.pos.z = cz;
-    // Mesh + walk swing.
+    // Mesh and walk swing.
     this.mesh.position.copy(this.pos);
     this.mesh.rotation.y = this.angle;
     const t = performance.now() / 1000;
@@ -89,7 +89,7 @@ export class Player {
     this.mesh.visible = true;
   }
 
-  // Third-person camera. Returns nothing; moves G.camera.
+  // Third-person camera. Moves G.camera; returns nothing.
   updateCamera(dt) {
     const cam = this.G.camera;
     let tx, tz, ty, lookY;
@@ -117,7 +117,7 @@ export class Player {
     cam.lookAt(this.pos.x, this.pos.y + 1.7, this.pos.z);
   }
 
-  // Nearest stealable car within 3.5 m (not a police car, not the snowcat unless mission 3).
+  // Nearest stealable car within 3.5 m (never a police car, never the snowcat outside mission 3).
   nearestCar(cars) {
     let best = null, bd = 3.5;
     for (const c of cars) {

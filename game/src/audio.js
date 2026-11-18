@@ -1,4 +1,5 @@
-// FROSTLINE — all sound is synthesized with WebAudio. No audio files, no network.
+// FROSTLINE — every sound is synthesized live with WebAudio.
+// No audio files, no network. Engine hum, wind, siren, gunshots, music pad.
 export class AudioSys {
   constructor() {
     this.ctx = null;
@@ -8,6 +9,7 @@ export class AudioSys {
     this.windGain = null;
     this.sirenOsc = null;
     this.sirenGain = null;
+    this.sirenStep = 0;
     this.musicTimer = null;
   }
 
@@ -17,7 +19,8 @@ export class AudioSys {
     if (!AC) return;
     this.ctx = new AC();
     const ctx = this.ctx;
-    // Engine hum: sawtooth through a lowpass, pitch follows speed.
+
+    // Engine: a sawtooth through a lowpass, pitch follows speed.
     this.engineOsc = ctx.createOscillator();
     this.engineOsc.type = 'sawtooth';
     this.engineOsc.frequency.value = 55;
@@ -26,7 +29,8 @@ export class AudioSys {
     this.engineGain = ctx.createGain(); this.engineGain.gain.value = 0;
     this.engineOsc.connect(engineFilter).connect(this.engineGain).connect(ctx.destination);
     this.engineOsc.start();
-    // Wind: looped noise through a bandpass.
+
+    // Wind: looped white noise through a bandpass.
     const len = ctx.sampleRate * 2;
     const buf = ctx.createBuffer(1, len, ctx.sampleRate);
     const data = buf.getChannelData(0);
@@ -38,20 +42,21 @@ export class AudioSys {
     this.windGain = ctx.createGain(); this.windGain.gain.value = 0.05;
     noise.connect(windFilter).connect(this.windGain).connect(ctx.destination);
     noise.start();
-    // Siren: two alternating tones.
+
+    // Siren: two alternating sine tones, flipped on a timer.
     this.sirenOsc = ctx.createOscillator();
     this.sirenOsc.type = 'sine';
     this.sirenOsc.frequency.value = 700;
     this.sirenGain = ctx.createGain(); this.sirenGain.gain.value = 0;
     this.sirenOsc.connect(this.sirenGain).connect(ctx.destination);
     this.sirenOsc.start();
-    this.sirenStep = 0;
     setInterval(() => {
       if (!this.ctx || this.muted) return;
       this.sirenStep = 1 - this.sirenStep;
       this.sirenOsc.frequency.value = this.sirenStep ? 950 : 700;
     }, 420);
-    // Slow minor pad loop: a quiet chord that drifts.
+
+    // Slow drifting minor pad: a quiet chord every 8 seconds.
     const chords = [[110, 130.8, 164.8], [98, 123.5, 146.8], [87.3, 110, 130.8], [103.8, 123.5, 155.6]];
     let ci = 0;
     const playChord = () => {
@@ -80,7 +85,7 @@ export class AudioSys {
     if (this.engineGain) this.engineGain.gain.value = m ? 0 : this.engineGain.gain.value;
   }
 
-  // Called every frame: engine pitch by speed, wind by blizzard.
+  // Per-frame: engine pitch tracks speed, wind rises in a blizzard.
   update(dt, speed, blizzard) {
     if (!this.ctx || this.muted) return;
     if (this.engineGain) {
@@ -110,6 +115,7 @@ export class AudioSys {
   gunshot() {
     if (!this.ctx || this.muted) return;
     const ctx = this.ctx;
+    // Noise burst through a lowpass, plus a low square thump.
     const len = ctx.sampleRate * 0.18;
     const buf = ctx.createBuffer(1, len, ctx.sampleRate);
     const d = buf.getChannelData(0);
@@ -124,6 +130,7 @@ export class AudioSys {
   }
 
   pickup() { this.blip(660, 0.12); setTimeout(() => this.blip(990, 0.14), 90); }
+
   mission() {
     [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => this.blip(f, 0.22, 'triangle', 0.1), i * 110));
   }

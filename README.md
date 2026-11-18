@@ -8,7 +8,7 @@ Built for make.fun's [Make GTA 6](https://make.fun/bounty/gta6-01) bounty — $1
 
 # FROSTLINE — a 3D open-world crime game
 
-A third-person open-world action game in the browser. You are Mara Voss, getaway driver for the Whiteout Crew, working Frostline Pass — a remote snowy alpine resort town at dusk, aurora in the sky, a frozen lake, pine forests, a ski lodge and a chairlift. Steal cars, outrun the ski patrol, and run six story missions from the lodge to the south gate.
+A third-person open-world action game that runs in the browser. You play Mara Voss, getaway driver for the Whiteout Crew, working Frostline Pass — a remote snowy alpine resort town at dusk, aurora overhead, a frozen lake, pine forests, a ski lodge and a chairlift. Steal cars, outrun the ski patrol, and run six story missions from the lodge to the south gate.
 
 ## Run it
 
@@ -18,11 +18,11 @@ No build step, no network requests, no fetched assets: Three.js is vendored unde
 
 ## The game
 
-- **Open world:** procedural alpine resort town — a main street of shops and a diner, the Frostline Lodge, seven cabins, a chairlift climbing the north slope, a frozen lake with an ice-fishing hut, pine forests, and an icy mountain pass road to the south gate. Dusk light, aurora ribbons, drifting snow.
+- **Open world:** a procedural alpine resort town — a main street of shops and a diner, the Frostline Lodge, seven cabins, a chairlift climbing the north slope, a frozen lake with an ice-fishing hut, pine forests, and an icy mountain pass road to the south gate. Dusk light, aurora ribbons, drifting snow.
 - **On foot + driving:** third-person on foot (run, jump) and five car types to steal and drive, with arcade handling that slides on ice, damage and smoke.
 - **Traffic + pedestrians:** AI cars follow the town roads, pedestrians stroll the sidewalks and flee when shots are fired.
 - **Wanted 1–5 stars:** car theft, hitting pedestrians and shooting raise your stars; patrol SUVs chase and ram, roadblocks go up at 3+ stars. Lay low to cool off, or clear stars at the Snowline Garage ($150 respray).
-- **6 story missions:** First Pickup, Powder Run, Lift House Heist, Hot Getaway, Lodge Shootout, Whiteout Escape — with objective markers, cash rewards and progression. Final mission runs on a 150-second timer in a blizzard.
+- **6 story missions:** First Pickup, Powder Run, Lift House Heist, Hot Getaway, Lodge Shootout, Whiteout Escape — with objective markers, cash rewards and progression. The final mission runs on a 150-second timer in a blizzard.
 - **Combat:** pistol with tracers and aim assist, drive-by shooting from a car, fists, health/armor/ammo pickups, armed rivals in the lodge shootout.
 - **HUD + minimap:** cash, health/armor, ammo, wanted stars, speed, objective + distance, and a live 2D minimap with roads, the frozen lake, mission marker and police blips.
 - **Save:** progress (cash, missions, health/armor/ammo) persists in localStorage; start screen, pause menu, busted/wasted and game-complete screens.

@@ -1,32 +1,32 @@
-// FROSTLINE — the world: snowy alpine resort town at dusk.
-// Terrain, frozen lake, roads, buildings, pines, chairlift, lamps, aurora, snowfall.
+// FROSTLINE — the world: a snowy alpine resort town at dusk.
+// Terrain, frozen lake, roads, buildings, pines, chairlift, lamps, aurora, snow.
 import * as THREE from 'three';
 import { CFG, ROADS, BUILDINGS, LAKE } from './config.js';
 import { clamp, lerp, rand, mulberry32, distToSegment, makeSignTexture } from './util.js';
 
-function smoothstep(a, b, x) {
+function sstep(a, b, x) {
   const t = clamp((x - a) / (b - a), 0, 1);
   return t * t * (3 - 2 * t);
 }
 
-// Height of the terrain at (x, z). Town + roads + lake are flattened.
+// Ground height at (x, z). Town, roads and the lake are flattened out.
 export function heightAt(x, z) {
   let h = 2.2 * Math.sin(x * 0.02) * Math.cos(z * 0.017)
     + 1.4 * Math.sin(x * 0.05 + 1.7) * Math.sin(z * 0.043);
-  // Mountain rise to the north.
+  // The mountain climbs to the north.
   const mt = clamp((-150 - z) / 200, 0, 1);
   h += mt * mt * 58;
   // Flatten the town bowl.
-  const town = 1 - smoothstep(120, 200, Math.hypot(x / 1.15, z));
+  const town = 1 - sstep(120, 200, Math.hypot(x / 1.15, z));
   h = lerp(h, 0.5, town);
   // Flatten the frozen lake.
   const lx = (x - LAKE.x) / LAKE.rx, lz = (z - LAKE.z) / LAKE.rz;
-  const lake = 1 - smoothstep(0.85, 1.05, Math.hypot(lx, lz));
+  const lake = 1 - sstep(0.85, 1.05, Math.hypot(lx, lz));
   h = lerp(h, 0.15, lake);
-  // Flatten roads.
+  // Flatten the roads.
   for (const r of ROADS) {
     const d = distToSegment(x, z, r.ax, r.az, r.bx, r.bz);
-    const f = 1 - smoothstep(r.w / 2 + 1, r.w / 2 + 6, d);
+    const f = 1 - sstep(r.w / 2 + 1, r.w / 2 + 6, d);
     h = lerp(h, 0.4, f);
   }
   return h;
@@ -46,7 +46,7 @@ export function surfaceGrip(x, z) {
   return 0.62; // snow
 }
 
-function roadTexture() {
+function asphaltTexture() {
   const c = document.createElement('canvas');
   c.width = 128; c.height = 128;
   const g = c.getContext('2d');
@@ -66,7 +66,7 @@ export function buildWorld(G) {
   const colliders = []; // {x,z,hw,hd} boxes or {x,z,r} circles
   const lamps = [];
 
-  // ---- sky dome (dusk gradient) ----
+  // ---- dusk sky dome ----
   const skyGeo = new THREE.SphereGeometry(480, 24, 16);
   const skyMat = new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false,
@@ -88,7 +88,7 @@ export function buildWorld(G) {
   scene.add(sun);
   scene.add(sun.target);
 
-  // ---- terrain ----
+  // ---- snow terrain ----
   const terrGeo = new THREE.PlaneGeometry(CFG.worldSize, CFG.worldSize, 96, 96);
   terrGeo.rotateX(-Math.PI / 2);
   const pos = terrGeo.attributes.position;
@@ -110,7 +110,7 @@ export function buildWorld(G) {
   scene.add(lakeMesh);
 
   // ---- roads ----
-  const rTex = roadTexture();
+  const rTex = asphaltTexture();
   for (const r of ROADS) {
     const len = Math.hypot(r.bx - r.ax, r.bz - r.az);
     const geo = new THREE.PlaneGeometry(len, r.w);
@@ -143,7 +143,7 @@ export function buildWorld(G) {
     roof.scale.z = b.d / Math.max(b.w, b.d);
     roof.castShadow = true;
     g.add(roof);
-    // Warm windows on the front (south) face.
+    // Warm windows across the front (south) face.
     const nWin = Math.max(2, Math.floor(b.w / 6));
     for (let i = 0; i < nWin; i++) {
       const win = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.2), windowMat);
@@ -164,7 +164,7 @@ export function buildWorld(G) {
     colliders.push({ x: b.x, z: b.z, hw: b.w / 2 + 0.6, hd: b.d / 2 + 0.6 });
   }
 
-  // ---- pine forest (instanced) ----
+  // ---- pine forest (instanced, kept out of town, roads and lake) ----
   const treeSpots = [];
   let guard = 0;
   while (treeSpots.length < 340 && guard++ < 6000) {
@@ -198,7 +198,7 @@ export function buildWorld(G) {
   trunks.castShadow = true; cones.castShadow = true;
   scene.add(trunks); scene.add(cones); scene.add(snowCones);
 
-  // ---- chairlift: base tower -> top tower, moving chairs ----
+  // ---- chairlift: base tower up to the top tower, chairs gliding on the cable ----
   const liftBase = new THREE.Vector3(40, heightAt(40, -124) + 10, -124);
   const liftTop = new THREE.Vector3(40, heightAt(40, -280) + 12, -280);
   const towerMat = new THREE.MeshStandardMaterial({ color: 0x5a6068, roughness: 0.6, metalness: 0.5 });
@@ -242,14 +242,14 @@ export function buildWorld(G) {
       lamps.push([x, y + 5.6, z]);
     }
   }
-  // A few real warm lights where it matters.
+  // A few real warm point lights where it matters.
   for (const [x, z, c] of [[70, -58, 0xffb85c], [-40, -8, 0xffb85c], [-100, -8, 0x7fd4ff]]) {
     const pl = new THREE.PointLight(c, 60, 45, 1.8);
     pl.position.set(x, heightAt(x, z) + 6, z);
     scene.add(pl);
   }
 
-  // ---- aurora ribbons ----
+  // ---- aurora ribbons (additive shader planes) ----
   const auroraUniforms = { uTime: { value: 0 } };
   const auroraMat = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false,
@@ -277,7 +277,7 @@ export function buildWorld(G) {
   }
   scene.add(aurora);
 
-  // ---- stars + moon ----
+  // ---- stars and moon ----
   const starGeo = new THREE.BufferGeometry();
   const starPos = new Float32Array(900 * 3);
   for (let i = 0; i < 900; i++) {
@@ -293,7 +293,7 @@ export function buildWorld(G) {
   moon.lookAt(0, 0, 0);
   scene.add(moon);
 
-  // ---- snowfall ----
+  // ---- snowfall (wraps around the camera) ----
   const SNOW_N = 1400;
   const snowGeo = new THREE.BufferGeometry();
   const snowPos = new Float32Array(SNOW_N * 3);
@@ -306,7 +306,7 @@ export function buildWorld(G) {
   const snow = new THREE.Points(snowGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.35, transparent: true, opacity: 0.85 }));
   scene.add(snow);
 
-  // Blurred distant peaks ring the map.
+  // Distant peaks ring the map.
   const peakMat = new THREE.MeshStandardMaterial({ color: 0x8a9cc0, roughness: 1 });
   for (let i = 0; i < 10; i++) {
     const a = (i / 10) * Math.PI * 2 + rand(0.2);
@@ -319,14 +319,14 @@ export function buildWorld(G) {
   G.world = {
     colliders, lamps, chairs, liftBase, liftTop, auroraUniforms, snow, snowPos, snowVel,
     update(dt, t, camPos, blizzard) {
-      // Chairlift chairs glide up the cable and loop back.
+      // Chairs glide up the cable and loop back to the base.
       for (const c of chairs) {
         c.t = (c.t + dt * 0.012) % 1;
         const p = new THREE.Vector3().copy(liftBase).addScaledVector(cableDir, c.t);
         c.mesh.position.set(p.x, p.y - 1.6, p.z);
       }
       auroraUniforms.uTime.value = t;
-      // Snowfall wraps around the camera; blizzard doubles the fall speed.
+      // Snow falls around the camera; a blizzard doubles the fall speed.
       const speed = blizzard ? 2.1 : 1;
       for (let i = 0; i < SNOW_N; i++) {
         snowPos[i * 3 + 1] -= snowVel[i] * speed * dt;
@@ -346,7 +346,8 @@ export function buildWorld(G) {
   return G.world;
 }
 
-// Circle/box collision resolve for a point with radius r. Returns corrected [x, z].
+// Push a point (with radius r) out of every collider it overlaps.
+// Returns the corrected [x, z].
 export function collide(x, z, r, colliders) {
   for (const c of colliders) {
     if (c.r !== undefined) {

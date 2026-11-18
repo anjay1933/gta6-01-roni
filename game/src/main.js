@@ -16,6 +16,7 @@ window.__THREE__ = THREE;
 
 const SAVE_KEY = 'frostline-save-v1';
 
+// G is the shared game object every system reads and writes.
 const G = {
   state: 'menu', // menu | playing | paused | over | complete
   blizzard: false,
@@ -23,7 +24,7 @@ const G = {
   scene: null,
   camera: null,
   renderer: null,
-  input: { f: false, b: false, l: false, r: false, sprint: false, jump: false, g: false },
+  input: { forward: false, back: false, left: false, right: false, sprint: false, jump: false, g: false },
   mouseDX: 0,
 };
 
@@ -55,7 +56,7 @@ function init() {
   G.hud = new HUD(G);
   G.audio = new AudioSys();
 
-  // Parked cars + traffic.
+  // Parked cars (traffic cars spawn through People).
   for (const c of CARS) {
     if (c.traffic) continue;
     const car = new Car(G, c.type, c.x, c.z, c.angle, {});
@@ -63,10 +64,10 @@ function init() {
   }
   G.people.spawnTraffic(G, CARS);
 
-  // Input.
+  // Keyboard: one map, one input object, shared by walking and driving.
   const keyMap = {
-    KeyW: 'f', ArrowUp: 'f', KeyS: 'b', ArrowDown: 'b',
-    KeyA: 'l', ArrowLeft: 'l', KeyD: 'r', ArrowRight: 'r',
+    KeyW: 'forward', ArrowUp: 'forward', KeyS: 'back', ArrowDown: 'back',
+    KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right',
     ShiftLeft: 'sprint', ShiftRight: 'sprint', Space: 'jump',
   };
   window.addEventListener('keydown', (e) => {
@@ -116,12 +117,12 @@ function init() {
   document.getElementById('btn-mute').addEventListener('click', toggleMute);
   document.getElementById('btn-sound').addEventListener('click', () => { G.audio.init(); toggleMute(); });
 
-  // Continue button only shows with a save.
+  // CONTINUE only shows when a save exists.
   if (loadSave(true)) document.getElementById('btn-continue').style.display = 'inline-block';
 
   // Debug handle for play-testing (not part of the game UI).
   window.__FL = { G, startGame, version: 'frostline-1.0' };
-  // Manual logic step for headless verification: run game time without rendering.
+  // Manual logic step for headless verification: advance game time without rendering.
   window.__FL.step = (dt) => {
     window.__FL._t = (window.__FL._t || 0) + dt;
     if (G.state === 'playing') stepGame(dt, window.__FL._t);
@@ -157,9 +158,9 @@ function init() {
   loop();
 }
 
+// One logic tick: drive or walk, camera, people, wanted, combat, missions, HUD, audio.
 function stepGame(dt, t) {
   const p = G.player;
-  // Driving vs on foot.
   if (p.inCar) {
     const car = p.inCar;
     const ctrl = {
@@ -260,6 +261,7 @@ G.gameComplete = function () {
   G.save();
 };
 
+// Damage the player (armor absorbs first); death ends the run.
 G.damagePlayer = function (amount) {
   const p = G.player;
   if (G.state !== 'playing') return;

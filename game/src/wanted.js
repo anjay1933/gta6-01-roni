@@ -9,7 +9,7 @@ export class Wanted {
   constructor(G) {
     this.G = G;
     this.stars = 0;
-    this.heat = 0; // seconds since last crime / last police sighting
+    this.heat = 0; // seconds since the last crime / police sighting
     this.police = []; // police Car objects
     this.roadblock = null; // {cars: [Car, Car], x, z, until}
     this.bustedTimer = 0;
@@ -40,9 +40,9 @@ export class Wanted {
     if (reason) this.G.hud.flash(reason);
   }
 
+  // Block the road ahead of the player's heading (main street, east side).
   makeRoadblock() {
     const p = this.G.player;
-    // Block the road ahead of the player's heading (main street, east side).
     const bx = clamp(p.x + 45, -140, 140), bz = 0;
     const cars = [];
     for (const off of [-4, 4]) {
@@ -77,7 +77,7 @@ export class Wanted {
     const want = this.wantedCarCount();
     const alive = this.police.filter((c) => !c.destroyed);
     if (alive.length >= want) return;
-    // Spawn on the road behind / ahead of the player.
+    // Spawn on the road, some distance from the player in a random direction.
     const a = rand(Math.PI * 2);
     const sx = clamp(p.x + Math.sin(a) * 55, -200, 200);
     const sz = clamp(p.z + Math.cos(a) * 55, -150, 200);
@@ -86,7 +86,6 @@ export class Wanted {
     this.G.cars.push(car);
   }
 
-  // Police chase: ram the player (car or foot), give up when far.
   update(dt) {
     const p = this.G.player;
     this.spawnTimer -= dt;
@@ -109,7 +108,7 @@ export class Wanted {
         }
       } else this.heat = 0;
     }
-    // Busted check: police car touching the player while wanted and slow.
+    // Busted: a police car touching the player on foot while wanted and slow.
     if (this.stars > 0) {
       const speed = p.inCar ? Math.abs(p.inCar.speed) : 0;
       if (nearest < 3.2 && speed < 2 && !p.inCar) {
@@ -133,7 +132,7 @@ export class Wanted {
         handbrake: false,
       };
       c.update(dt, ctrl);
-      // Ram: shove the player's car on contact.
+      // Ram: shove and damage the player's car on contact.
       if (p.inCar && d < 4.2) {
         p.inCar.speed *= 0.92;
         p.inCar.damage(2 * dt * 10);

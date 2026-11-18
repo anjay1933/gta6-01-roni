@@ -1,4 +1,4 @@
-// FROSTLINE — six story missions: markers, objectives, payoffs, progression.
+// FROSTLINE — the six story missions: markers, objectives, payoffs, progression.
 import * as THREE from 'three';
 import { MISSIONS, GARAGE } from './config.js';
 import { clamp, dist2 } from './util.js';
@@ -21,8 +21,8 @@ export class Missions {
     this.buildMarker();
   }
 
+  // A tall amber beacon column plus a floating ring at the current objective.
   buildMarker() {
-    // A tall amber beacon column + a floating ring at the current objective.
     const geo = new THREE.CylinderGeometry(0.7, 0.7, 60, 12, 1, true);
     const mat = new THREE.MeshBasicMaterial({ color: 0xffc030, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false });
     this.beacon = new THREE.Mesh(geo, mat);
@@ -37,6 +37,7 @@ export class Missions {
   }
 
   current() { return MISSIONS[this.index] || null; }
+
   currentStep() {
     const m = this.current();
     return m ? m.steps[this.step] : null;
@@ -65,6 +66,7 @@ export class Missions {
     this.G.cars.push(this.snowcat);
   }
 
+  // A rival went down during the lodge shootout.
   onRivalDown() {
     if (this.current()?.id !== 5) return;
     this.defeated++;
@@ -158,7 +160,6 @@ export class Missions {
       if (this.timer <= 0) {
         this.G.hud.flash('Too slow — the whiteout closed the pass. Try again.');
         this.timer = s.seconds;
-        const start = MISSIONS[5].steps[0];
         // Reset the player to the lodge start of the escape.
         if (p.inCar) { p.inCar.x = 70; p.inCar.z = -90; p.inCar.speed = 0; }
         p.pos.set(70, heightAt(70, -90), -90);
@@ -168,7 +169,7 @@ export class Missions {
       if (d < s.radius) { this.advanceStep(); return; }
     }
     if (s.kind === 'pickup' && d < s.radius) {
-      // Mission 3 pickup means stealing the snowcat: require being in it.
+      // Mission 3 pickup means stealing the snowcat: the player must be in it.
       if (m.id === 3) {
         if (p.inCar === this.snowcat) this.advanceStep();
         else this.G.hud.flash('Get in the snowcat (E)');
@@ -176,7 +177,7 @@ export class Missions {
       return;
     }
     if ((s.kind === 'goto' || s.kind === 'deliver') && d < s.radius) {
-      // Mission 2 + 3 deliveries want the player in a car.
+      // Missions 2 and 3 deliveries want the player in a car.
       if ((m.id === 2 || m.id === 3) && s.kind === 'deliver' && !p.inCar) {
         this.G.hud.flash('Bring the car in to deliver');
         return;

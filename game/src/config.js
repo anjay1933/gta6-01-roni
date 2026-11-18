@@ -1,11 +1,12 @@
-// FROSTLINE — shared configuration: world layout, palette, cars, missions, prices.
-// All values are authored for this game only. Units are metres, angles radians.
+// FROSTLINE — tuning and world data for the whole game.
+// Distances in metres, angles in radians. Every number below is part of
+// the game design: move a value and you move a building, a mission, a car.
 
 export const CFG = {
   title: 'FROSTLINE',
   worldSize: 700, // terrain spans -350..350 on x and z
   gravity: 22,
-  // ---- dusk palette ----
+  // ---- dusk sky ----
   skyTop: 0x0b1026,
   skyHorizon: 0x3a2b52,
   fogColor: 0x2a2f4a,
@@ -17,7 +18,7 @@ export const CFG = {
   iceColor: 0x9fd8e8,
   auroraA: 0x37e6a0,
   auroraB: 0x7a5cff,
-  // ---- player ----
+  // ---- on foot ----
   walkSpeed: 6.5,
   sprintSpeed: 10.5,
   jumpSpeed: 8.5,
@@ -25,14 +26,22 @@ export const CFG = {
   // ---- money ----
   resprayCost: 150,
   startCash: 200,
-  // ---- wanted ----
+  // ---- heat ----
   heatDecaySeconds: 12,
   starDecaySeconds: 9,
-  // ---- combat ----
+  // ---- guns ----
   pistolAmmo: 24,
   pistolDamage: 34,
   fistDamage: 12,
 };
+
+// Where the player starts, and the two landmarks missions keep returning to.
+export const SPAWN = { x: -8, z: 24, angle: Math.PI };
+export const GARAGE = { x: -100, z: -10 };
+export const LODGE = { x: 70, z: -62 };
+
+// The frozen lake (driving on it is slick ice), as an ellipse.
+export const LAKE = { x: -180, z: 60, rx: 88, rz: 56 };
 
 // Roads as segments {ax, az, bx, bz, w}. Traffic and the minimap use these.
 export const ROADS = [
@@ -80,9 +89,6 @@ export const CAR_TYPES = {
   snowcat: { name: 'Snowcat', topSpeed: 20, accel: 10, grip: 1.4, tough: 2.2, colors: [0xc25a1e] },
   police: { name: 'Patrol SUV', topSpeed: 38, accel: 19, grip: 1.1, tough: 1.4, colors: [0xe8eef7] },
 };
-
-// The frozen lake ellipse (driving on it is slick ice).
-export const LAKE = { x: -180, z: 60, rx: 88, rz: 56 };
 
 // The six story missions. Each step: {text, at:[x,z], radius, kind}
 // kind: 'goto' (reach marker), 'pickup', 'deliver', 'survive' (stay alive with wanted), 'defeat' (count set in code), 'timed' (reach before timer).
@@ -165,7 +171,3 @@ export const PEDS = [
   [-30, -10], [-10, 10], [20, -10], [45, 8], [-60, -8], [90, 10], [-110, -10],
   [10, 50], [-45, 55], [70, 40], [-100, 55], [130, -10], [-140, 20], [0, -40],
 ];
-
-export const SPAWN = { x: -8, z: 24, angle: Math.PI };
-export const GARAGE = { x: -100, z: -10 };
-export const LODGE = { x: 70, z: -62 };

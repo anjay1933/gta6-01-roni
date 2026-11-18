@@ -3,118 +3,127 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FROSTLINE — an open-world crime game</title>
+<title>FROSTLINE — GTA 6 in the Snow</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { width: 100%; height: 100%; overflow: hidden; background: #0b1026; font-family: Arial, Helvetica, sans-serif; }
-  #game-canvas { display: block; width: 100%; height: 100%; }
-  .screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10; color: #eef2fa; text-align: center; }
-  #start-screen { background: linear-gradient(180deg, rgba(11,16,38,0.25) 0%, rgba(11,16,38,0.55) 55%, rgba(11,16,38,0.88) 100%); }
-  #start-screen h1 { font-size: 84px; letter-spacing: 14px; color: #bfe8ff; text-shadow: 0 0 24px #37e6a0, 0 4px 0 #123; }
-  #start-screen h2 { font-size: 20px; letter-spacing: 4px; color: #ffd27a; margin-top: 6px; }
-  #start-screen p.story { max-width: 620px; margin: 22px 0 8px; font-size: 16px; line-height: 1.55; color: #dfe6f5; }
-  #start-screen p.controls { max-width: 620px; margin: 10px 0 22px; font-size: 14px; line-height: 1.7; color: #aab6d0; }
-  .btn { display: inline-block; padding: 13px 34px; margin: 6px; font-size: 17px; font-weight: bold; letter-spacing: 2px; color: #0b1026; background: #37e6a0; border: none; border-radius: 6px; cursor: pointer; }
-  .btn:hover { background: #5ff0b2; }
-  .btn.ghost { background: transparent; color: #bfe8ff; border: 2px solid #bfe8ff; }
-  .btn.ghost:hover { background: rgba(191,232,255,0.12); }
-  #hud { display: none; position: absolute; inset: 0; z-index: 5; pointer-events: none; color: #fff; }
-  #hud-top-left { position: absolute; top: 14px; left: 16px; text-shadow: 0 2px 4px #000; }
-  #hud-cash { font-size: 26px; font-weight: bold; color: #7dffb0; }
-  #hud-objective { font-size: 15px; margin-top: 6px; max-width: 430px; line-height: 1.4; }
-  #hud-distance { font-size: 14px; color: #ffd27a; margin-top: 2px; }
-  #hud-stars { position: absolute; top: 14px; right: 18px; font-size: 26px; letter-spacing: 3px; text-shadow: 0 2px 4px #000; }
-  #hud-flash { position: absolute; top: 84px; left: 50%; transform: translateX(-50%); font-size: 19px; font-weight: bold; color: #ffd27a; text-shadow: 0 2px 6px #000; opacity: 0; transition: opacity 0.3s; white-space: nowrap; }
-  #hud-bottom-left { position: absolute; left: 16px; bottom: 16px; width: 230px; text-shadow: 0 2px 4px #000; }
-  .bar-label { font-size: 12px; letter-spacing: 1px; margin: 5px 0 2px; }
-  .bar { height: 12px; background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.35); border-radius: 3px; overflow: hidden; }
-  .bar > div { height: 100%; }
-  #hud-health { background: #3ddc6a; width: 100%; }
-  #hud-armor { background: #3a90ff; width: 0%; }
-  #hud-ammo { font-size: 14px; margin-top: 8px; }
-  #hud-speed { position: absolute; right: 18px; bottom: 196px; font-size: 22px; font-weight: bold; text-shadow: 0 2px 4px #000; }
-  #minimap { position: absolute; right: 16px; bottom: 16px; width: 168px; height: 168px; border: 2px solid rgba(255,255,255,0.4); border-radius: 4px; background: rgba(10,14,28,0.7); }
-  #mission-card { position: absolute; top: 130px; left: 50%; transform: translateX(-50%); width: 520px; max-width: 88vw; background: rgba(8,12,28,0.88); border: 1px solid #37e6a0; border-radius: 8px; padding: 16px 20px; opacity: 0; transition: opacity 0.5s; pointer-events: none; }
-  #mission-title { font-size: 17px; font-weight: bold; color: #37e6a0; }
-  #mission-text { font-size: 14px; line-height: 1.5; margin-top: 6px; color: #dfe6f5; }
-  #pause-screen, #over-screen, #complete-screen { display: none; background: rgba(8,12,28,0.85); }
-  #pause-screen h1, #over-screen h1, #complete-screen h1 { font-size: 52px; letter-spacing: 8px; color: #bfe8ff; text-shadow: 0 0 18px #37e6a0; }
-  #pause-screen p, #over-screen p, #complete-screen p { max-width: 520px; margin: 16px 0 20px; font-size: 16px; line-height: 1.6; color: #dfe6f5; }
-  #complete-cash { font-size: 34px; color: #7dffb0; font-weight: bold; margin: 8px 0 18px; }
-  #crosshair { position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; z-index: 4; pointer-events: none; }
-  #crosshair::before, #crosshair::after { content: ''; position: absolute; background: rgba(255,255,255,0.85); }
-  #crosshair::before { left: 6px; top: 0; width: 2px; height: 14px; }
-  #crosshair::after { top: 6px; left: 0; width: 14px; height: 2px; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0e1c; font-family: 'Segoe UI', system-ui, sans-serif; color: #eef2ff; }
+  #game-canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; text-align: center; background: radial-gradient(ellipse at 50% 30%, rgba(20, 30, 70, 0.85), rgba(5, 8, 18, 0.96)); z-index: 10; }
+  .hidden { display: none !important; }
+  h1.logo { font-size: clamp(48px, 9vw, 110px); letter-spacing: 0.14em; font-weight: 900; font-style: italic; color: #eef4ff; text-shadow: 0 0 30px rgba(90, 200, 255, 0.6), 0 4px 0 #16264d; }
+  h1.logo span { color: #7fd4ff; }
+  .tagline { font-size: clamp(15px, 2.4vw, 24px); letter-spacing: 0.35em; color: #9fd8ef; margin-top: 6px; text-transform: uppercase; }
+  .sub { margin-top: 18px; font-size: 15px; color: #b8c4dd; max-width: 560px; line-height: 1.6; padding: 0 16px; }
+  .controls { margin-top: 22px; font-size: 13px; color: #8a93a8; line-height: 1.9; }
+  .controls b { color: #dfe8ff; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 1px 7px; font-weight: 600; }
+  .btn { margin-top: 26px; padding: 14px 44px; font-size: 18px; font-weight: 800; letter-spacing: 0.12em; color: #06101f; background: linear-gradient(180deg, #8fd8ff, #4aa8e8); border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 6px 24px rgba(80, 180, 255, 0.45); text-transform: uppercase; }
+  .btn:hover { filter: brightness(1.12); }
+  .btn.ghost { background: transparent; color: #cfe3ff; border: 1px solid rgba(255,255,255,0.35); box-shadow: none; font-size: 14px; padding: 10px 28px; margin-top: 14px; }
+  .btn.small { font-size: 13px; padding: 9px 22px; margin-top: 10px; }
+  h2.big { font-size: clamp(40px, 7vw, 80px); letter-spacing: 0.12em; font-weight: 900; }
+  #over-title { color: #ff5040; text-shadow: 0 0 30px rgba(255, 60, 40, 0.5); }
+  #complete-screen h2 { color: #ffd75e; text-shadow: 0 0 30px rgba(255, 200, 60, 0.5); }
+  .bigtext { margin-top: 14px; font-size: 16px; color: #b8c4dd; max-width: 480px; line-height: 1.6; padding: 0 16px; }
+  #complete-cash { font-size: 40px; font-weight: 900; color: #ffd75e; margin-top: 10px; }
+  /* HUD */
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; display: none; font-weight: 600; }
+  #hud-top { position: absolute; top: 14px; left: 16px; right: 16px; display: flex; justify-content: space-between; align-items: flex-start; }
+  #hud-cash { font-size: 30px; font-weight: 900; color: #7de08a; text-shadow: 0 2px 8px rgba(0,0,0,0.7); }
+  #hud-stars { font-size: 22px; letter-spacing: 2px; text-shadow: 0 2px 8px rgba(0,0,0,0.7); }
+  #hud-objective { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); max-width: 46vw; text-align: center; font-size: 15px; color: #ffe9a0; background: rgba(5, 8, 18, 0.55); padding: 8px 16px; border-radius: 8px; border: 1px solid rgba(255, 210, 90, 0.25); line-height: 1.4; }
+  #hud-distance { display: block; color: #9fd8ef; font-size: 13px; margin-top: 2px; }
+  #hud-bottom-left { position: absolute; left: 16px; bottom: 16px; width: 210px; }
+  .bar-label { font-size: 11px; letter-spacing: 0.15em; color: #c8d2ea; margin: 6px 0 3px; }
+  .bar { height: 10px; background: rgba(255,255,255,0.14); border-radius: 5px; overflow: hidden; border: 1px solid rgba(0,0,0,0.4); }
+  .bar > div { height: 100%; transition: width 0.25s; }
+  #hud-health { background: linear-gradient(90deg, #37d67a, #7de08a); width: 100%; }
+  #hud-armor { background: linear-gradient(90deg, #2f7fe0, #6db3ff); width: 0%; }
+  #hud-bottom-right { position: absolute; right: 16px; bottom: 16px; text-align: right; }
+  #hud-ammo { font-size: 15px; color: #ffe9a0; text-shadow: 0 2px 6px rgba(0,0,0,0.7); }
+  #hud-speed { font-size: 30px; font-weight: 900; text-shadow: 0 2px 8px rgba(0,0,0,0.7); }
+  #hud-flash { position: absolute; top: 22%; left: 50%; transform: translateX(-50%); font-size: 26px; font-weight: 800; color: #ffd75e; text-shadow: 0 2px 12px rgba(0,0,0,0.8); opacity: 0; transition: opacity 0.3s; text-align: center; white-space: nowrap; }
+  #mission-card { position: absolute; top: 78px; left: 50%; transform: translateX(-50%); background: rgba(5, 8, 18, 0.78); border: 1px solid rgba(255, 210, 90, 0.4); border-radius: 10px; padding: 14px 22px; max-width: 480px; text-align: center; opacity: 0; transition: opacity 0.4s; pointer-events: none; }
+  #mission-title { font-size: 18px; font-weight: 800; color: #ffd75e; }
+  #mission-text { font-size: 14px; color: #dfe8ff; margin-top: 6px; line-height: 1.5; }
+  #minimap { position: absolute; right: 16px; top: 64px; width: 168px; height: 168px; border: 2px solid rgba(255,255,255,0.25); border-radius: 8px; background: rgba(10,14,28,0.6); }
+  #btn-mute { position: absolute; left: 16px; top: 64px; pointer-events: auto; background: rgba(5, 8, 18, 0.6); color: #cfe3ff; border: 1px solid rgba(255,255,255,0.3); border-radius: 6px; padding: 6px 12px; font-size: 12px; cursor: pointer; font-weight: 700; }
+  #crosshair { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; pointer-events: none; }
+  #crosshair::before, #crosshair::after { content: ''; position: absolute; background: rgba(255,255,255,0.85); box-shadow: 0 0 4px rgba(0,0,0,0.8); }
+  #crosshair::before { left: 8px; top: 0; width: 2px; height: 18px; }
+  #crosshair::after { left: 0; top: 8px; width: 18px; height: 2px; }
+  .hint { margin-top: 16px; font-size: 13px; color: #8a93a8; }
+  @media (max-width: 640px) {
+    #hud-objective { max-width: 70vw; font-size: 12px; }
+    #minimap { width: 110px; height: 110px; }
+    #hud-cash { font-size: 22px; }
+  }
 </style>
-<script type="importmap">
-{ "imports": { "three": "./vendor/three.module.min.js" } }
-</script>
 </head>
 <body>
 <canvas id="game-canvas"></canvas>
-<div id="crosshair"></div>
 
 <div id="hud">
-  <div id="hud-top-left">
+  <div id="hud-top">
     <div id="hud-cash">$200</div>
-    <div id="hud-objective"></div>
-    <div id="hud-distance"></div>
+    <div id="hud-stars">☆☆☆☆☆</div>
   </div>
-  <div id="hud-stars">☆☆☆☆☆</div>
-  <div id="hud-flash"></div>
+  <div id="hud-objective">Welcome to Frostline Pass<span id="hud-distance"></span></div>
+  <div id="crosshair"></div>
   <div id="mission-card"><div id="mission-title"></div><div id="mission-text"></div></div>
+  <div id="hud-flash"></div>
+  <canvas id="minimap" width="168" height="168"></canvas>
+  <button id="btn-mute">SOUND: ON</button>
   <div id="hud-bottom-left">
     <div class="bar-label">HEALTH</div>
     <div class="bar"><div id="hud-health"></div></div>
     <div class="bar-label">ARMOR</div>
     <div class="bar"><div id="hud-armor"></div></div>
+  </div>
+  <div id="hud-bottom-right">
     <div id="hud-ammo">AMMO 24</div>
-  </div>
-  <div id="hud-speed">0 km/h</div>
-  <canvas id="minimap" width="168" height="168"></canvas>
-</div>
-
-<div id="start-screen" class="screen">
-  <h1>FROSTLINE</h1>
-  <h2>AN OPEN-WORLD CRIME GAME &middot; FROSTLINE PASS</h2>
-  <p class="story">You are Mara Voss, getaway driver for the Whiteout Crew. The pass is snowed in,
-  the aurora is out, and the ski patrol is watching every road. Run six jobs for Vera —
-  from a quiet pickup at the lodge to a whiteout escape down the mountain — steal what
-  you need, outrun the law, and get paid.</p>
-  <p class="controls">W A S D move &middot; Mouse look (click to lock) &middot; Shift sprint &middot; Space jump<br>
-  E enter / exit car &middot; Click shoot &middot; F punch &middot; R drive-by while driving<br>
-  G respray at the garage ($150, clears wanted) &middot; P pause &middot; M mute</p>
-  <div>
-    <button id="btn-start" class="btn">START ENGINE</button>
-    <button id="btn-continue" class="btn ghost" style="display:none">CONTINUE</button>
-    <button id="btn-sound" class="btn ghost">SOUND: ON</button>
+    <div id="hud-speed">0 km/h</div>
   </div>
 </div>
 
-<div id="pause-screen" class="screen">
-  <h1>PAUSED</h1>
-  <p>Take a breath. The snow keeps falling, the patrols keep circling.</p>
-  <div>
-    <button id="btn-resume" class="btn">RESUME</button>
-    <button id="btn-restart" class="btn ghost">RESTART</button>
-    <button id="btn-mute" class="btn ghost">SOUND: ON</button>
+<div id="start-screen" class="overlay">
+  <h1 class="logo">FROST<span>LINE</span></h1>
+  <div class="tagline">GTA 6 in the Snow</div>
+  <p class="sub">Frostline Pass — a snowy alpine resort town at dusk. Six jobs, one getaway.
+  Steal cars, dodge the ski patrol, shoot it out at the lodge, and vanish into the whiteout.</p>
+  <div class="controls">
+    <b>W A S D</b> move / drive &nbsp; <b>Mouse</b> aim &nbsp; <b>Click</b> shoot<br>
+    <b>E</b> enter / exit car &nbsp; <b>F</b> punch &nbsp; <b>R</b> drive-by &nbsp; <b>G</b> respray at garage<br>
+    <b>Shift</b> sprint &nbsp; <b>Space</b> jump / handbrake &nbsp; <b>P</b> pause &nbsp; <b>M</b> mute
   </div>
+  <button class="btn" id="btn-start">Start the Run</button>
+  <button class="btn ghost" id="btn-continue" style="display:none">Continue — saved progress</button>
+  <button class="btn ghost" id="btn-sound">SOUND: ON</button>
+  <div class="hint">Progress saves automatically after each mission. Headphones on — the storm is coming.</div>
 </div>
 
-<div id="over-screen" class="screen">
-  <h1 id="over-title">WASTED</h1>
-  <p id="over-text"></p>
-  <div><button id="btn-retry" class="btn">TRY AGAIN</button></div>
+<div id="pause-screen" class="overlay" style="display:none">
+  <h2 class="big">PAUSED</h2>
+  <p class="bigtext">The snow waits for no one. Take a breath.</p>
+  <button class="btn" id="btn-resume">Resume</button>
+  <button class="btn ghost" id="btn-restart">Restart from scratch</button>
 </div>
 
-<div id="complete-screen" class="screen">
-  <h1>WHITEOUT CLEARED</h1>
-  <p>You made it down the pass and out of Frostline. The crew is paid, the patrols are
-  still looking, and the aurora is still out. Every mission complete.</p>
-  <div id="complete-cash"></div>
-  <div><button class="btn" onclick="location.reload()">FREE ROAM</button></div>
+<div id="over-screen" class="overlay" style="display:none">
+  <h2 class="big" id="over-title">WASTED</h2>
+  <p class="bigtext" id="over-text"></p>
+  <button class="btn" id="btn-retry">Try Again</button>
 </div>
 
+<div id="complete-screen" class="overlay" style="display:none">
+  <h2 class="big">WHITEOUT ESCAPE</h2>
+  <p class="bigtext">You made it through the storm. Six jobs, one clean getaway — Frostline Pass is yours.</p>
+  <div id="complete-cash">$4,600</div>
+  <button class="btn" onclick="location.reload()">Free Roam</button>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.min.js" } }
+</script>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

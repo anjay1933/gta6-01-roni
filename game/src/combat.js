@@ -31,7 +31,7 @@ export class Combat {
     }
   }
 
-  // A short-lived glowing tracer line from muzzle to hit point.
+  // A short-lived glowing line from muzzle to hit point.
   tracer(from, to) {
     const geo = new THREE.BufferGeometry().setFromPoints([from, to]);
     const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xffe9a0, transparent: true, opacity: 0.95 }));
@@ -39,7 +39,7 @@ export class Combat {
     this.tracers.push({ line, life: 0.09 });
   }
 
-  // Fire the pistol from the player toward the aim point (camera forward on ground plane).
+  // Fire the pistol from the player toward the aim point (camera forward on the ground plane).
   shoot() {
     const G = this.G, p = G.player;
     if (this.shootCooldown > 0 || p.ammo <= 0) return false;
@@ -52,7 +52,7 @@ export class Combat {
     const from = p.inCar
       ? new THREE.Vector3(p.inCar.x, heightAt(p.inCar.x, p.inCar.z) + 1.6, p.inCar.z)
       : new THREE.Vector3(p.x, p.pos.y + 1.5, p.z);
-    // Aim assist: snap to the nearest rival / police car within a generous cone.
+    // Aim assist: snap to the nearest rival or police car inside a generous cone.
     let target = null, bestScore = 0.80;
     const aimAt = (x, z, y) => {
       const v = new THREE.Vector3(x - from.x, y - from.y, z - from.z).normalize();
@@ -74,7 +74,7 @@ export class Combat {
       if (target.rival) this.hitRival(target.rival, 34);
       if (target.car) { target.car.damage(22); if (target.car.destroyed) G.wanted.addStars(0, ''); }
     } else {
-      // Miss: tracer forward along the aim direction.
+      // Miss: the tracer runs forward along the aim direction.
       end = from.clone().addScaledVector(dir, 60);
       end.y = Math.max(end.y, heightAt(end.x, end.z) + 0.2);
     }

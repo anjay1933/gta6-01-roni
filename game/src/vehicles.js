@@ -6,6 +6,7 @@ import { heightAt, surfaceGrip, collide } from './world.js';
 
 let carId = 0;
 
+// Build a car mesh from its type and paint color. Returns {group, wheels}.
 export function makeCarMesh(type, color) {
   const g = new THREE.Group();
   const paint = new THREE.MeshStandardMaterial({ color, roughness: 0.35, metalness: 0.45 });
@@ -20,6 +21,7 @@ export function makeCarMesh(type, color) {
   cabin.position.set(0, 1.4, -0.2); cabin.castShadow = true;
   g.add(cabin);
   if (isSnowcat) {
+    // Front plow blade and a raised cab.
     const blade = new THREE.Mesh(new THREE.BoxGeometry(W + 0.3, 0.7, 0.25), dark);
     blade.position.set(0, 0.5, L / 2 + 0.2);
     g.add(blade);
@@ -47,6 +49,7 @@ export function makeCarMesh(type, color) {
   return { group: g, wheels };
 }
 
+// Red/blue light bar for patrol cars. Returns the two lamp meshes.
 export function makePoliceExtras(group) {
   const bar = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.18, 0.4), new THREE.MeshStandardMaterial({ color: 0x11131a }));
   bar.position.set(0, 1.85, -0.2);
@@ -99,12 +102,12 @@ export class Car {
     if (!ctrl.f && !ctrl.b) this.speed -= Math.sign(this.speed) * Math.min(Math.abs(this.speed), 6 * dt);
     if (ctrl.handbrake) this.speed -= Math.sign(this.speed) * Math.min(Math.abs(this.speed), 22 * dt);
     this.speed = clamp(this.speed, -this.def.topSpeed * 0.45, this.def.topSpeed);
-    // Steering bites less on ice; at standstill nothing turns.
+    // Steering bites less on ice; nothing turns at a standstill.
     const steerAuthority = clamp(Math.abs(this.speed) / 6, 0, 1) * (0.55 + 0.45 * grip);
     const steerTarget = (ctrl.l ? 1 : 0) - (ctrl.r ? 1 : 0);
     this.steer = lerp(this.steer, steerTarget * 0.55, 1 - Math.pow(0.001, dt));
     this.angle += this.steer * (this.speed >= 0 ? 1 : -1) * steerAuthority * 1.9 * dt * Math.sign(this.speed || 1);
-    // Ice slide: velocity keeps a lateral component.
+    // Ice slide: the car keeps a lateral velocity component.
     const fx = Math.sin(this.angle), fz = Math.cos(this.angle);
     const slide = (1 - grip) * 0.55;
     this.x += fx * this.speed * dt + (this.slideX || 0) * slide * dt;
@@ -118,7 +121,7 @@ export class Car {
     this.y = heightAt(this.x, this.z);
     this.mesh.position.set(this.x, this.y, this.z);
     this.mesh.rotation.y = this.angle;
-    // Wheel spin + front steer visual.
+    // Wheel spin and front steer visuals.
     const spin = this.speed * dt * 2.4;
     for (const w of this.wheels) w.rotation.x += spin;
     if (this.wheels[0]) this.wheels[0].rotation.y = this.steer * 0.4;
@@ -142,13 +145,14 @@ export class Car {
   }
 }
 
-// Traffic loops: simple rectangular/loop waypoint circuits around town.
+// Traffic loops: simple waypoint circuits around town.
 export const TRAFFIC_LOOPS = [
   [[-160, 3], [160, 3], [160, -3], [-160, -3]],
   [[3, -130], [3, 130], [-3, 130], [-3, -130]],
   [[-40, 4], [-180, 56], [-170, 66], [-30, -4]],
 ];
 
+// Autopilot for one traffic car: chase its loop waypoints, slow for cars ahead.
 export function trafficControl(G, car, dt) {
   const loop = TRAFFIC_LOOPS[car.id % TRAFFIC_LOOPS.length];
   const target = loop[car.wpIndex % loop.length];

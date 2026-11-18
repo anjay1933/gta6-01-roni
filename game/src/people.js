@@ -38,7 +38,7 @@ export class People {
     }
   }
 
-  // Panic: make peds near (x,z) flee from it.
+  // Panic: make the peds near (x, z) flee away from it.
   scare(x, z, radius = 22, strength = 1) {
     for (const p of this.peds) {
       const d = dist2(p.x, p.z, x, z);
@@ -96,12 +96,11 @@ export class People {
       if (car.destroyed || car.driver === 'player') continue; // never fight the player's steering
       const ctrl = trafficControl(this.G, car, dt);
       // Cap traffic speed so the town stays readable.
-      const before = car.speed;
       car.update(dt, ctrl);
       if (car.speed > 13) car.speed = 13;
       if (car.speed < -4) car.speed = -4;
     }
-    // Car-vs-car shoves (cheap circle push so traffic never overlaps).
+    // Car-vs-car shoves (a cheap circle push so traffic never overlaps).
     const all = this.G.cars;
     for (let i = 0; i < all.length; i++) {
       for (let j = i + 1; j < all.length; j++) {

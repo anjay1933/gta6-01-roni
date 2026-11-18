@@ -1,7 +1,7 @@
 // FROSTLINE — submission program (Node 22, standard library only).
 // Hands the game in: copies game/ and screenshots/ beside this file into the
 // output directory and writes /output/dossier.json with the kit's vendored
-// dossier builder. Run outside the grader with MAKEFUN_OUTPUT_DIR set:
+// dossier builder. To run it outside the grader, set MAKEFUN_OUTPUT_DIR:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 
 import { cpSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
