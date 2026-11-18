@@ -1,143 +1,114 @@
-// DUSTLINE HUD: the DOM panels (stars, cash, objective, health/armor, ammo,
-// speed) and the round minimap drawn on a 2D canvas — roads, town blocks, the
-// player arrow, cop blips, the mission beacon and the respray garage.
+// FROSTLINE — HUD: cash, objective, wanted stars, health/armor, ammo, speed, minimap.
+import { ROADS, BUILDINGS, LAKE } from './config.js';
 
-import { fmtCash, clamp01 } from './util.js';
-
-export class Hud {
-  constructor() {
-    this.root = document.getElementById('hud');
-    this.starsEl = document.getElementById('stars');
-    this.cashEl = document.getElementById('cash');
-    this.objLabel = document.getElementById('obj-label');
-    this.objText = document.getElementById('obj-text');
-    this.objDist = document.getElementById('obj-dist');
-    this.healthFill = document.getElementById('healthfill');
-    this.armorFill = document.getElementById('armorfill');
-    this.ammoEl = document.getElementById('ammo');
-    this.speedEl = document.getElementById('speed');
-    this.hintEl = document.getElementById('hint');
-    this.toastEl = document.getElementById('toast');
-    this.crosshair = document.getElementById('crosshair');
-    this.map = document.getElementById('minimap');
-    this.mapCtx = this.map.getContext('2d');
-    this.toastTimer = 0;
-    this.lastStars = -1;
+export class HUD {
+  constructor(G) {
+    this.G = G;
+    this.el = {
+      cash: document.getElementById('hud-cash'),
+      objective: document.getElementById('hud-objective'),
+      distance: document.getElementById('hud-distance'),
+      stars: document.getElementById('hud-stars'),
+      health: document.getElementById('hud-health'),
+      armor: document.getElementById('hud-armor'),
+      ammo: document.getElementById('hud-ammo'),
+      speed: document.getElementById('hud-speed'),
+      flash: document.getElementById('hud-flash'),
+      minimap: document.getElementById('minimap'),
+      missionCard: document.getElementById('mission-card'),
+      missionTitle: document.getElementById('mission-title'),
+      missionText: document.getElementById('mission-text'),
+    };
+    this.flashTimer = 0;
+    this.mapCtx = this.el.minimap.getContext('2d');
   }
 
-  show() { this.root.classList.add('on'); }
-  hide() { this.root.classList.remove('on'); }
-
-  toast(main, sub = '') {
-    this.toastEl.innerHTML = main + (sub ? `<small>${sub}</small>` : '');
-    this.toastEl.style.opacity = '1';
-    this.toastTimer = 2.6;
+  flash(text) {
+    this.el.flash.textContent = text;
+    this.el.flash.style.opacity = '1';
+    this.flashTimer = 3;
   }
 
-  update(dt, s) {
-    // s: { stars, cash, health, armor, ammo, speedMph, inCar, label, objective, dist, hint }
-    if (s.stars !== this.lastStars) {
-      this.lastStars = s.stars;
-      let html = '';
-      for (let i = 0; i < 5; i++) {
-        html += `<span class="${i < s.stars ? 'lit' : 'dim'}">&#9733;</span>`;
-      }
-      this.starsEl.innerHTML = html;
+  showMission(m) {
+    this.el.missionTitle.textContent = `Mission ${m.id} — ${m.title} ($${m.pay})`;
+    this.el.missionText.textContent = m.intro;
+    this.el.missionCard.style.opacity = '1';
+    setTimeout(() => { this.el.missionCard.style.opacity = '0'; }, 7000);
+  }
+
+  update(dt) {
+    const G = this.G, p = G.player;
+    this.el.cash.textContent = `$${p.cash}`;
+    this.el.objective.textContent = G.missions.objectiveText();
+    const d = G.missions.objectiveDistance();
+    this.el.distance.textContent = G.missions.active ? `${d} m` : '';
+    const stars = '★'.repeat(G.wanted.stars) + '☆'.repeat(5 - G.wanted.stars);
+    this.el.stars.textContent = stars;
+    this.el.stars.style.color = G.wanted.stars > 0 ? '#ff5040' : '#8a93a8';
+    this.el.health.style.width = `${Math.max(0, p.health)}%`;
+    this.el.armor.style.width = `${Math.max(0, p.armor)}%`;
+    this.el.ammo.textContent = p.inCar ? 'DRIVE-BY [R]' : `AMMO ${p.ammo}`;
+    const speed = p.inCar ? Math.abs(p.inCar.speed) * 3.6 : 0;
+    this.el.speed.textContent = `${Math.round(speed)} km/h`;
+    if (this.flashTimer > 0) {
+      this.flashTimer -= dt;
+      if (this.flashTimer <= 0) this.el.flash.style.opacity = '0';
     }
-    this.cashEl.innerHTML = `${fmtCash(s.cash)} <small>CASH</small>`;
-    this.objLabel.textContent = s.label;
-    this.objText.textContent = s.objective;
-    this.objDist.textContent = s.dist > 0 ? `${s.dist} m — follow the gold beacon` : '';
-    this.healthFill.style.width = `${clamp01(s.health / 100) * 100}%`;
-    this.armorFill.style.width = `${clamp01(s.armor / 100) * 100}%`;
-    this.ammoEl.innerHTML = `&#128481; PISTOL <b>${s.ammo}</b> &nbsp;|&nbsp; FISTS READY`;
-    this.speedEl.innerHTML = s.inCar ? `${Math.round(s.speedMph)} <small>MPH</small>` : 'ON FOOT';
-    this.hintEl.textContent = s.hint;
-    this.crosshair.style.display = s.inCar ? 'none' : 'block';
-    if (this.toastTimer > 0) {
-      this.toastTimer -= dt;
-      if (this.toastTimer <= 0) this.toastEl.style.opacity = '0';
-    }
+    this.drawMinimap();
   }
 
-  /** Draw the minimap. The world is 900 across; the map shows the whole town. */
-  drawMap(px, pz, heading, cops, target, garage, roads) {
-    const g = this.mapCtx;
-    const W = 190;
-    const H = 190;
-    const scale = W / 920;
-    const toMap = (x, z) => [95 + x * scale, 95 + z * scale];
-    g.clearRect(0, 0, W, H);
-    // Desert background.
-    g.fillStyle = '#b98a52';
-    g.fillRect(0, 0, W, H);
-    // Canyon gap.
-    g.fillStyle = '#6e3a20';
-    g.fillRect(95 + 300 * scale, 0, 60 * scale, H);
+  drawMinimap() {
+    const ctx = this.mapCtx;
+    const S = 168, W = 700; // world -350..350 maps to 0..168
+    const toMap = (x, z) => [(x + 350) / W * S, (z + 350) / W * S];
+    ctx.clearRect(0, 0, S, S);
+    ctx.fillStyle = 'rgba(10,14,28,0.82)';
+    ctx.fillRect(0, 0, S, S);
+    // Frozen lake.
+    ctx.fillStyle = '#7fc4de';
+    ctx.beginPath();
+    const [lx, lz] = toMap(LAKE.x, LAKE.z);
+    ctx.ellipse(lx, lz, LAKE.rx / W * S, LAKE.rz / W * S, 0, 0, Math.PI * 2);
+    ctx.fill();
     // Roads.
-    g.strokeStyle = '#2e2a28';
-    g.lineCap = 'round';
-    g.lineWidth = 5;
-    for (const road of roads) {
-      g.beginPath();
-      road.points.forEach(([x, z], i) => {
-        const [mx, mz] = toMap(x, z);
-        if (i === 0) g.moveTo(mx, mz);
-        else g.lineTo(mx, mz);
-      });
-      if (road.loop) g.closePath();
-      g.stroke();
+    ctx.strokeStyle = '#5a6274';
+    ctx.lineWidth = 3;
+    for (const r of ROADS) {
+      const [ax, az] = toMap(r.ax, r.az), [bx, bz] = toMap(r.bx, r.bz);
+      ctx.beginPath(); ctx.moveTo(ax, az); ctx.lineTo(bx, bz); ctx.stroke();
     }
-    // Downtown blocks.
-    g.fillStyle = '#8a6a4a';
-    g.fillRect(95 - 170 * scale, 95 - 230 * scale, 340 * scale, 190 * scale);
-    // Garage (respray) — blue square.
-    const [gx, gz] = toMap(garage.x, garage.z);
-    g.fillStyle = '#4fa8ff';
-    g.fillRect(gx - 5, gz - 5, 10, 10);
-    // Mission beacon — pulsing gold diamond.
-    if (target) {
-      const [tx, tz] = toMap(target.x, target.z);
-      const pulse = 6 + Math.sin(performance.now() / 220) * 2;
-      g.fillStyle = '#ffd76a';
-      g.beginPath();
-      g.moveTo(tx, tz - pulse);
-      g.lineTo(tx + pulse, tz);
-      g.lineTo(tx, tz + pulse);
-      g.lineTo(tx - pulse, tz);
-      g.closePath();
-      g.fill();
+    // Buildings.
+    ctx.fillStyle = '#c8a06a';
+    for (const b of BUILDINGS) {
+      const [bx, bz] = toMap(b.x, b.z);
+      ctx.fillRect(bx - 2, bz - 2, 4, 4);
     }
-    // Cop blips — red/blue flashing dots.
-    const flash = Math.floor(performance.now() / 300) % 2 === 0;
-    g.fillStyle = flash ? '#ff4444' : '#4488ff';
-    for (const c of cops) {
+    // Mission marker.
+    const pt = this.G.missions.objectivePoint();
+    if (pt && this.G.missions.active) {
+      const [mx, mz] = toMap(pt[0], pt[1]);
+      ctx.fillStyle = '#ffc030';
+      ctx.beginPath(); ctx.arc(mx, mz, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#ffc030'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(mx, mz, 8 + Math.sin(performance.now() / 300) * 2, 0, Math.PI * 2); ctx.stroke();
+    }
+    // Police blips.
+    ctx.fillStyle = '#ff5040';
+    for (const c of this.G.wanted.police) {
+      if (c.destroyed) continue;
       const [cx, cz] = toMap(c.x, c.z);
-      g.beginPath();
-      g.arc(cx, cz, 3.5, 0, Math.PI * 2);
-      g.fill();
+      ctx.beginPath(); ctx.arc(cx, cz, 3, 0, Math.PI * 2); ctx.fill();
     }
-    // Player arrow — white triangle pointing along the heading.
-    const [mx, mz] = toMap(px, pz);
-    g.save();
-    g.translate(mx, mz);
-    g.rotate(Math.atan2(-Math.sin(heading), Math.cos(heading)) + Math.PI / 2);
-    g.fillStyle = '#ffffff';
-    g.strokeStyle = '#1a0f08';
-    g.lineWidth = 1.5;
-    g.beginPath();
-    g.moveTo(0, -8);
-    g.lineTo(5.5, 6);
-    g.lineTo(-5.5, 6);
-    g.closePath();
-    g.fill();
-    g.stroke();
-    g.restore();
-    // Round frame.
-    g.strokeStyle = 'rgba(255, 190, 110, 0.55)';
-    g.lineWidth = 2;
-    g.beginPath();
-    g.arc(95, 95, 93, 0, Math.PI * 2);
-    g.stroke();
+    // Player arrow.
+    const p = this.G.player;
+    const px = p.inCar ? p.inCar.x : p.x, pz = p.inCar ? p.inCar.z : p.z;
+    const pa = p.inCar ? p.inCar.angle : p.angle;
+    const [ux, uz] = toMap(px, pz);
+    ctx.save();
+    ctx.translate(ux, uz);
+    ctx.rotate(Math.PI - pa);
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.moveTo(0, -6); ctx.lineTo(4.5, 5); ctx.lineTo(-4.5, 5); ctx.closePath(); ctx.fill();
+    ctx.restore();
   }
 }

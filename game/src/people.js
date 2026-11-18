@@ -1,252 +1,122 @@
-// DUSTLINE people: pedestrians strolling the sidewalks who panic when trouble
-// starts, foot cops who chase at low wanted levels, and armed rivals for the
-// main-street shootout. All low-poly figures, all driven by the same walker.
-
+// FROSTLINE — pedestrians and traffic: townsfolk who stroll, panic, and flee.
 import * as THREE from 'three';
-import { clamp, dist2D, turnToward } from './util.js';
+import { PEDS } from './config.js';
+import { rand, pick, clamp, dist2 } from './util.js';
+import { heightAt, collide } from './world.js';
+import { Car, trafficControl } from './vehicles.js';
 
-const SKINS = [0xc98d68, 0x8a5a3a, 0xe8b88a, 0x6a4028];
-const SHIRTS = [0xd8d0c0, 0x5a7a9a, 0x9a4a3a, 0x4a7a4a, 0x8a6a9a, 0xc0a040];
+const COATS = [0x3a5a8a, 0x8a3a3a, 0x3a6b4a, 0x6b4a8a, 0x8a6b3a, 0x37424f];
 
-/** A simple articulated figure: torso, head, hat or cap, two swinging legs. */
-export function makePersonModel(shirtColor, skinColor, opts = {}) {
-  const g = new THREE.Group();
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.95, 0.4),
-    new THREE.MeshStandardMaterial({ color: shirtColor, roughness: 0.85 }));
-  torso.position.y = 1.15;
-  torso.castShadow = true;
-  g.add(torso);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.26, 10, 8),
-    new THREE.MeshStandardMaterial({ color: skinColor, roughness: 0.7 }));
-  head.position.y = 1.9;
-  head.castShadow = true;
-  g.add(head);
-  if (opts.hat) {
-    const hat = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.38, 0.12, 10),
-      new THREE.MeshStandardMaterial({ color: 0x6a4a28, roughness: 0.9 }));
-    hat.position.y = 2.12;
-    g.add(hat);
-  }
-  if (opts.cap) {
-    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.28, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2),
-      new THREE.MeshStandardMaterial({ color: 0x1c2a4a, roughness: 0.8 }));
-    cap.position.y = 1.95;
-    g.add(cap);
-  }
-  const legGeo = new THREE.BoxGeometry(0.26, 0.85, 0.3);
-  const legMat = new THREE.MeshStandardMaterial({ color: opts.pants ?? 0x2a3242, roughness: 0.9 });
-  const legL = new THREE.Mesh(legGeo, legMat);
-  legL.geometry = legGeo.clone();
-  legL.geometry.translate(0, -0.42, 0);
-  legL.position.set(0, 0.85, 0.18);
-  const legR = legL.clone();
-  legR.position.z = -0.18;
-  g.add(legL);
-  g.add(legR);
-  g.userData.legL = legL;
-  g.userData.legR = legR;
-  g.userData.walkPhase = 0;
-  return g;
-}
-
-export class Walker {
-  constructor(scene, x, z, opts = {}) {
-    this.scene = scene;
-    this.group = makePersonModel(opts.shirt ?? 0xd8d0c0, opts.skin ?? 0xc98d68, opts);
-    this.group.position.set(x, 0, z);
-    scene.add(this.group);
-    this.x = x;
-    this.z = z;
-    this.heading = Math.random() * Math.PI * 2;
-    this.speed = 0;
-    this.health = opts.health ?? 100;
-    this.kind = opts.kind ?? 'ped';
-    this.dead = false;
-    this.panic = 0;        // seconds of panic left
-    this.wanderTarget = null;
-    this.shootCooldown = 0;
-    this.walkSpeed = opts.walkSpeed ?? 1.6;
-  }
-
-  get alive() { return !this.dead; }
-
-  move(dt, tx, tz, speed) {
-    const d = dist2D(this.x, this.z, tx, tz);
-    if (d < 0.2) return;
-    const want = Math.atan2(-(tz - this.z), tx - this.x);
-    this.heading = turnToward(this.heading, want, 5 * dt);
-    this.speed = speed;
-    this.x += Math.cos(this.heading) * speed * dt;
-    this.z += -Math.sin(this.heading) * speed * dt;
-    this.group.userData.walkPhase += dt * speed * 3.2;
-    const ph = this.group.userData.walkPhase;
-    this.group.userData.legL.rotation.x = Math.sin(ph) * 0.55;
-    this.group.userData.legR.rotation.x = -Math.sin(ph) * 0.55;
-    this.sync();
-  }
-
-  sync() {
-    this.group.position.set(this.x, 0, this.z);
-    this.group.rotation.y = this.heading;
-  }
-
-  damage(amount) {
-    if (this.dead) return false;
-    this.health -= amount;
-    if (this.health <= 0) {
-      this.dead = true;
-      this.group.rotation.x = -Math.PI / 2; // fall flat
-      this.group.position.y = 0.35;
-      return true;
-    }
-    return false;
-  }
-
-  remove() {
-    this.scene.remove(this.group);
-  }
-}
-
-/** The crowd: pedestrians wandering the sidewalks, fleeing gunfire and cars. */
-export class Crowd {
-  constructor(scene, town, rng) {
-    this.scene = scene;
-    this.town = town;
-    this.rng = rng;
+export class People {
+  constructor(G) {
+    this.G = G;
     this.peds = [];
-    const spots = [
-      [-100, -60], [0, -60], [80, -60], [-60, -140], [60, -140],
-      [-160, 14], [-40, 14], [120, 14], [-180, 40], [30, -200],
-    ];
-    for (let i = 0; i < 14; i++) {
-      const [sx, sz] = spots[i % spots.length];
-      const w = new Walker(scene, sx + (rng() - 0.5) * 20, sz + (rng() - 0.5) * 8, {
-        shirt: SHIRTS[Math.floor(rng() * SHIRTS.length)],
-        skin: SKINS[Math.floor(rng() * SKINS.length)],
-        hat: rng() < 0.35,
-        walkSpeed: 1.2 + rng() * 0.9,
+    this.traffic = [];
+    const coatGeo = new THREE.BoxGeometry(0.55, 0.8, 0.32);
+    const headGeo = new THREE.SphereGeometry(0.24, 10, 8);
+    const legGeo = new THREE.BoxGeometry(0.2, 0.6, 0.24);
+    for (const [x, z] of PEDS) {
+      const coat = new THREE.MeshStandardMaterial({ color: pick(COATS), roughness: 0.9 });
+      const skin = new THREE.MeshStandardMaterial({ color: 0xd9a986, roughness: 0.7 });
+      const dark = new THREE.MeshStandardMaterial({ color: 0x22242e, roughness: 0.9 });
+      const g = new THREE.Group();
+      const body = new THREE.Mesh(coatGeo, coat); body.position.y = 1.0; body.castShadow = true;
+      const head = new THREE.Mesh(headGeo, skin); head.position.y = 1.62; head.castShadow = true;
+      const hat = new THREE.Mesh(new THREE.SphereGeometry(0.26, 10, 6, 0, Math.PI * 2, 0, 1.1), dark);
+      hat.position.y = 1.68;
+      const legL = new THREE.Mesh(legGeo, dark); legL.position.set(-0.14, 0.3, 0);
+      const legR = legL.clone(); legR.position.x = 0.14;
+      g.add(body, head, hat, legL, legR);
+      const y = heightAt(x, z);
+      g.position.set(x, y, z);
+      G.scene.add(g);
+      this.peds.push({
+        mesh: g, legL, legR, x, z, y,
+        angle: rand(Math.PI * 2), speed: rand(1.2, 2.2),
+        panic: 0, targetX: x, targetZ: z, retarget: 0,
       });
-      w.wanderTarget = { x: w.x, z: w.z };
-      this.peds.push(w);
     }
   }
 
-  /** Scare everyone near (x, z): they run away from it for a few seconds. */
-  scare(x, z, radius, seconds = 5) {
+  // Panic: make peds near (x,z) flee from it.
+  scare(x, z, radius = 22, strength = 1) {
     for (const p of this.peds) {
-      if (!p.alive) continue;
-      if (dist2D(p.x, p.z, x, z) >= radius) continue;
-      p.panic = Math.max(p.panic, seconds);
-      const away = Math.atan2(-(p.z - z), p.x - x);
-      p.wanderTarget = { x: p.x + Math.cos(away) * 40, z: p.z - Math.sin(away) * 40 };
+      const d = dist2(p.x, p.z, x, z);
+      if (d < radius) {
+        p.panic = Math.max(p.panic, strength * (1 - d / radius) * 6);
+        const a = Math.atan2(p.x - x, p.z - z);
+        p.targetX = p.x + Math.sin(a) * 30;
+        p.targetZ = p.z + Math.cos(a) * 30;
+      }
     }
   }
 
-  update(dt, playerX, playerZ, playerCar) {
+  update(dt, t) {
     for (const p of this.peds) {
-      if (!p.alive) continue;
-      if (p.panic > 0) {
-        p.panic -= dt;
-        p.move(dt, p.wanderTarget.x, p.wanderTarget.z, p.walkSpeed * 2.6);
-        continue;
+      p.retarget -= dt;
+      if (p.retarget <= 0) {
+        p.retarget = rand(4, 9);
+        const a = rand(Math.PI * 2), d = rand(8, 26);
+        p.targetX = clamp(p.x + Math.sin(a) * d, -180, 180);
+        p.targetZ = clamp(p.z + Math.cos(a) * d, -140, 160);
       }
-      // Wander: pick a new nearby target when the old one is reached.
-      if (!p.wanderTarget || dist2D(p.x, p.z, p.wanderTarget.x, p.wanderTarget.z) < 2) {
-        const rx = this.rng() * 2 - 1;
-        const rz = this.rng() * 2 - 1;
-        p.wanderTarget = {
-          x: clamp(p.x + rx * 40, -220, 220),
-          z: clamp(p.z + rz * 30, -230, 60),
-        };
+      const dx = p.targetX - p.x, dz = p.targetZ - p.z;
+      const d = Math.hypot(dx, dz);
+      if (d > 0.5) {
+        const sp = p.panic > 0 ? p.speed * 2.6 : p.speed;
+        p.x += (dx / d) * sp * dt;
+        p.z += (dz / d) * sp * dt;
+        p.angle = Math.atan2(dx, dz);
       }
-      // Flee a fast car mounting the curb.
-      if (playerCar && dist2D(p.x, p.z, playerCar.x, playerCar.z) < 7 && Math.abs(playerCar.speed) > 12) {
-        this.scare(playerCar.x, playerCar.z, 12, 4);
-        continue;
-      }
-      p.move(dt, p.wanderTarget.x, p.wanderTarget.z, p.walkSpeed);
-      // Buildings are solid for pedestrians too — never walk through a wall.
-      const fixed = this.town.resolveCircle(p.x, p.z, 0.6);
-      if (fixed.x !== p.x || fixed.z !== p.z) {
-        p.x = fixed.x;
-        p.z = fixed.z;
-        p.sync();
-        p.wanderTarget = { x: p.x, z: p.z };
-      }
+      p.panic = Math.max(0, p.panic - dt);
+      const [cx, cz] = collide(p.x, p.z, 0.5, this.G.world.colliders);
+      p.x = cx; p.z = cz;
+      p.y = heightAt(p.x, p.z);
+      p.mesh.position.set(p.x, p.y, p.z);
+      p.mesh.rotation.y = p.angle;
+      const moving = d > 0.5;
+      const swing = moving ? Math.sin(t * (p.panic > 0 ? 14 : 8)) * 0.5 : 0;
+      p.legL.rotation.x = swing; p.legR.rotation.x = -swing;
     }
   }
 
-  /** Nearest living ped within range of (x, z). */
-  nearest(x, z, range) {
-    let best = null;
-    let bestD = range;
-    for (const p of this.peds) {
-      if (!p.alive) continue;
-      const d = dist2D(x, z, p.x, p.z);
-      if (d < bestD) { bestD = d; best = p; }
-    }
-    return best;
-  }
-}
-
-/** Armed rivals for the main-street shootout: they take cover and shoot back. */
-export class Rivals {
-  constructor(scene, town) {
-    this.scene = scene;
-    this.town = town;
-    this.fighters = [];
-  }
-
-  spawn(x, z, count, rng) {
-    for (let i = 0; i < count; i++) {
-      const w = new Walker(this.scene, x + (rng() - 0.5) * 30, z + (rng() - 0.5) * 16, {
-        shirt: 0x2a2a2a, skin: 0xc98d68, cap: true, health: 70, kind: 'rival',
-        walkSpeed: 2.4,
-      });
-      // Give each rival a visible pistol.
-      const gun = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.12, 0.12),
-        new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.4, metalness: 0.6 }));
-      gun.position.set(0.5, 1.25, 0.25);
-      w.group.add(gun);
-      this.fighters.push(w);
+  // Traffic cars: spawn from config, drive their loops, avoid each other.
+  spawnTraffic(G, list) {
+    for (const c of list) {
+      if (!c.traffic) continue;
+      const car = new Car(G, c.type, c.x, c.z, c.angle, { traffic: true, driver: 'traffic' });
+      car.wpIndex = Math.floor(rand(0, 4));
+      this.traffic.push(car);
+      G.cars.push(car);
     }
   }
 
-  update(dt, playerX, playerZ, onShoot) {
-    for (const f of this.fighters) {
-      if (!f.alive) continue;
-      const d = dist2D(f.x, f.z, playerX, playerZ);
-      f.shootCooldown -= dt;
-      if (d > 26) {
-        f.move(dt, playerX, playerZ, f.walkSpeed);
-      } else if (d < 8) {
-        // Too close: back off while shooting.
-        const away = Math.atan2(-(f.z - playerZ), f.x - playerX);
-        f.move(dt, f.x + Math.cos(away) * 10, f.z - Math.sin(away) * 10, f.walkSpeed);
-      } else {
-        f.heading = turnToward(f.heading, Math.atan2(-(playerZ - f.z), playerX - f.x), 4 * dt);
-        f.sync();
-      }
-      // Rivals respect walls as well.
-      const fixed = this.town.resolveCircle(f.x, f.z, 0.6);
-      if (fixed.x !== f.x || fixed.z !== f.z) {
-        f.x = fixed.x;
-        f.z = fixed.z;
-        f.sync();
-      }
-      if (d < 30 && f.shootCooldown <= 0) {
-        f.shootCooldown = 1.1 + Math.random() * 0.9;
-        onShoot(f);
+  updateTraffic(dt) {
+    for (const car of this.traffic) {
+      if (car.destroyed || car.driver === 'player') continue; // never fight the player's steering
+      const ctrl = trafficControl(this.G, car, dt);
+      // Cap traffic speed so the town stays readable.
+      const before = car.speed;
+      car.update(dt, ctrl);
+      if (car.speed > 13) car.speed = 13;
+      if (car.speed < -4) car.speed = -4;
+    }
+    // Car-vs-car shoves (cheap circle push so traffic never overlaps).
+    const all = this.G.cars;
+    for (let i = 0; i < all.length; i++) {
+      for (let j = i + 1; j < all.length; j++) {
+        const a = all[i], b = all[j];
+        if (a.destroyed || b.destroyed) continue;
+        const dx = b.x - a.x, dz = b.z - a.z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < 9 && d2 > 0.01) {
+          const d = Math.sqrt(d2), push = (3 - d) / 2;
+          const nx = dx / d, nz = dz / d;
+          a.x -= nx * push; a.z -= nz * push;
+          b.x += nx * push; b.z += nz * push;
+          a.speed *= 0.6; b.speed *= 0.6;
+        }
       }
     }
-  }
-
-  get aliveCount() {
-    return this.fighters.filter((f) => f.alive).length;
-  }
-
-  clear() {
-    for (const f of this.fighters) f.remove();
-    this.fighters = [];
   }
 }

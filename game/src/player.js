@@ -1,193 +1,150 @@
-// DUSTLINE player: Jax Marlowe on foot (WASD relative to the camera, sprint,
-// jump, fists) and behind the wheel (WASD drives, E gets in and out). The
-// third-person camera trails behind, swings with the mouse, and pulls back and
-// up while driving so the road ahead stays readable.
-
+// FROSTLINE — the player on foot: run, jump, camera, enter/exit cars.
 import * as THREE from 'three';
-import { PLAYER } from './config.js';
-import { clamp, turnToward, angleDiff, dist2D } from './util.js';
-import { makePersonModel } from './people.js';
+import { CFG, SPAWN } from './config.js';
+import { clamp, lerp } from './util.js';
+import { heightAt, collide } from './world.js';
 
 export class Player {
-  constructor(scene, town) {
-    this.scene = scene;
-    this.town = town;
-    this.group = makePersonModel(0xc22e2e, 0xc98d68, { hat: true, pants: 0x2a3242 });
-    // Jax's red jacket reads at a distance; the hat is his silhouette.
-    this.group.position.set(-170, 0, 40);
-    scene.add(this.group);
-    this.x = -170;
-    this.z = 40;
-    this.heading = 0;          // model facing: forward = (cos h, -sin h)
-    this.camYaw = 0;           // camera look direction, same convention
+  constructor(G) {
+    this.G = G;
+    this.pos = new THREE.Vector3(SPAWN.x, 0, SPAWN.z);
+    this.vel = new THREE.Vector3();
+    this.angle = SPAWN.angle; // facing
+    this.camYaw = SPAWN.angle + Math.PI;
     this.camPitch = 0.32;
-    this.vy = 0;
-    this.y = 0;
     this.onGround = true;
-    this.health = PLAYER.maxHealth;
+    this.inCar = null; // car object when driving
+    this.health = CFG.playerHealth;
     this.armor = 0;
-    this.car = null;           // Car instance while driving, else null
-    this.speed = 0;
-    this.walkPhase = 0;
-    this.camera = null;
+    this.ammo = CFG.pistolAmmo;
+    this.cash = CFG.startCash;
+    this.moving = false;
+    this.buildMesh();
   }
 
-  get pos() { return { x: this.x, z: this.z }; }
-
-  attachCamera(camera) {
-    this.camera = camera;
+  buildMesh() {
+    const g = new THREE.Group();
+    const coat = new THREE.MeshStandardMaterial({ color: 0x8a2f2f, roughness: 0.8 });
+    const skin = new THREE.MeshStandardMaterial({ color: 0xd9a986, roughness: 0.7 });
+    const dark = new THREE.MeshStandardMaterial({ color: 0x22242e, roughness: 0.9 });
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.85, 0.36), coat);
+    body.position.y = 1.05; body.castShadow = true;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.26, 12, 10), skin);
+    head.position.y = 1.72; head.castShadow = true;
+    const beanie = new THREE.Mesh(new THREE.SphereGeometry(0.28, 12, 8, 0, Math.PI * 2, 0, 1.2), dark);
+    beanie.position.y = 1.78;
+    const legL = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.7, 0.28), dark);
+    legL.position.set(-0.17, 0.35, 0); legL.castShadow = true;
+    const legR = legL.clone(); legR.position.x = 0.17;
+    const armL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.7, 0.22), coat);
+    armL.position.set(-0.42, 1.05, 0); armL.castShadow = true;
+    const armR = armL.clone(); armR.position.x = 0.42;
+    g.add(body, head, beanie, legL, legR, armL, armR);
+    this.mesh = g;
+    this.legL = legL; this.legR = legR; this.armL = armL; this.armR = armR;
+    this.G.scene.add(g);
   }
 
-  look(dx, dy) {
-    this.camYaw -= dx * 0.0032;
-    this.camPitch = clamp(this.camPitch + dy * 0.0024, -0.12, 0.9);
-  }
+  get x() { return this.pos.x; }
+  get z() { return this.pos.z; }
 
-  /** Ground height under (x, z): the bridge deck sits 1.9 m up, the rest is 0. */
-  groundHeight(x, z) {
-    return x > 300 && x < 360 && Math.abs(z) < 6.5 ? 1.9 : 0;
-  }
-
-  /** Step the on-foot controller. `keys` is a Set of lowercase codes. */
-  stepOnFoot(dt, keys) {
-    // Camera-relative move direction.
-    const fwd = { x: Math.cos(this.camYaw), z: -Math.sin(this.camYaw) };
-    const right = { x: Math.sin(this.camYaw), z: Math.cos(this.camYaw) };
-    let mx = 0;
-    let mz = 0;
-    if (keys.has('keyw') || keys.has('arrowup')) { mx += fwd.x; mz += fwd.z; }
-    if (keys.has('keys') || keys.has('arrowdown')) { mx -= fwd.x; mz -= fwd.z; }
-    if (keys.has('keyd') || keys.has('arrowright')) { mx += right.x; mz += right.z; }
-    if (keys.has('keya') || keys.has('arrowleft')) { mx -= right.x; mz -= right.z; }
+  // On-foot step. input uses the main.js keys: forward/back/left/right/sprint/jump.
+  updateOnFoot(dt, input) {
+    const sprint = input.sprint ? CFG.sprintSpeed : CFG.walkSpeed;
+    // Movement is relative to the camera yaw.
+    const sin = Math.sin(this.camYaw), cos = Math.cos(this.camYaw);
+    let mx = 0, mz = 0;
+    if (input.forward) { mx += -sin; mz += -cos; }
+    if (input.back) { mx += sin; mz += cos; }
+    if (input.left) { mx += -cos; mz += sin; }
+    if (input.right) { mx += cos; mz += -sin; }
     const len = Math.hypot(mx, mz);
-    const sprint = keys.has('shiftleft') || keys.has('shiftright');
-    const speed = sprint ? PLAYER.sprintSpeed : PLAYER.walkSpeed;
-    if (len > 0.01) {
-      mx /= len;
-      mz /= len;
-      const targetHeading = Math.atan2(-mz, mx);
-      this.heading = turnToward(this.heading, targetHeading, 10 * dt);
-      this.x += mx * speed * dt;
-      this.z += mz * speed * dt;
-      this.speed = speed;
-      this.walkPhase += dt * speed * 2.4;
-      this.group.userData.legL.rotation.x = Math.sin(this.walkPhase) * 0.6;
-      this.group.userData.legR.rotation.x = -Math.sin(this.walkPhase) * 0.6;
-    } else {
-      this.speed = 0;
-      this.group.userData.legL.rotation.x *= 0.8;
-      this.group.userData.legR.rotation.x *= 0.8;
+    this.moving = len > 0;
+    if (len > 0) {
+      mx /= len; mz /= len;
+      this.pos.x += mx * sprint * dt;
+      this.pos.z += mz * sprint * dt;
+      this.angle = Math.atan2(mx, mz);
     }
-    // Jump + gravity, landing on the ground — or on the bridge deck.
-    if (keys.has('space') && this.onGround) {
-      this.vy = PLAYER.jumpSpeed;
-      this.onGround = false;
-    }
-    const groundY = this.groundHeight(this.x, this.z);
+    // Ground + jump.
+    const ground = heightAt(this.pos.x, this.pos.z);
+    if (input.jump && this.onGround) { this.vel.y = CFG.jumpSpeed; this.onGround = false; }
     if (!this.onGround) {
-      this.vy -= 24 * dt;
-      this.y += this.vy * dt;
-      if (this.y <= groundY) { this.y = groundY; this.vy = 0; this.onGround = true; }
-    } else {
-      this.y = groundY;
-    }
-    // Buildings are solid; the world edge is a hard wall.
-    const fixed = this.town.resolveCircle(this.x, this.z, PLAYER.radius);
-    this.x = fixed.x;
-    this.z = fixed.z;
-    this.x = clamp(this.x, -445, 445);
-    this.z = clamp(this.z, -445, 445);
-    this.group.position.set(this.x, this.y, this.z);
-    this.group.rotation.y = this.heading;
+      this.vel.y -= CFG.gravity * dt;
+      this.pos.y += this.vel.y * dt;
+      if (this.pos.y <= ground) { this.pos.y = ground; this.vel.y = 0; this.onGround = true; }
+    } else this.pos.y = ground;
+    // Keep inside the map and out of buildings/trees.
+    this.pos.x = clamp(this.pos.x, -340, 340);
+    this.pos.z = clamp(this.pos.z, -340, 340);
+    const [cx, cz] = collide(this.pos.x, this.pos.z, 0.6, this.G.world.colliders);
+    this.pos.x = cx; this.pos.z = cz;
+    // Mesh + walk swing.
+    this.mesh.position.copy(this.pos);
+    this.mesh.rotation.y = this.angle;
+    const t = performance.now() / 1000;
+    const swing = this.moving ? Math.sin(t * 11) * 0.55 : 0;
+    this.legL.rotation.x = swing; this.legR.rotation.x = -swing;
+    this.armL.rotation.x = -swing * 0.8; this.armR.rotation.x = swing * 0.8;
+    this.mesh.visible = true;
   }
 
-  /** Enter a car: hide the walker, snap the camera behind the car. */
-  enterCar(car) {
-    this.car = car;
-    this.group.visible = false;
-    this.x = car.x;
-    this.z = car.z;
-  }
-
-  /** Step out on the driver's side. */
-  exitCar() {
-    if (!this.car) return;
-    const car = this.car;
-    const sx = car.x + -Math.sin(car.heading) * -2.4;
-    const sz = car.z + Math.cos(car.heading) * -2.4;
-    this.car = null;
-    this.group.visible = true;
-    this.x = sx;
-    this.z = sz;
-    this.y = this.groundHeight(sx, sz);
-    this.heading = car.heading;
-    this.group.position.set(this.x, 0, this.z);
-    this.group.rotation.y = this.heading;
-  }
-
-  /** Drive the current car with WASD. */
-  stepDriving(dt, keys) {
-    if (!this.car) return;
-    let throttle = 0;
-    if (keys.has('keyw') || keys.has('arrowup')) throttle = 1;
-    if (keys.has('keys') || keys.has('arrowdown')) throttle = -0.7;
-    let steer = 0;
-    if (keys.has('keya') || keys.has('arrowleft')) steer = -1;
-    if (keys.has('keyd') || keys.has('arrowright')) steer = 1;
-    // Space is the handbrake: it bleeds speed without reversing.
-    if (keys.has('space') && throttle >= 0) throttle *= 0.3;
-    this.car.drive(throttle, steer, dt);
-    // Solid buildings stop the car; the canyon gap stops it too.
-    const fixed = this.town.resolveCircle(this.car.x, this.car.z, 2.2);
-    if (fixed.x !== this.car.x || fixed.z !== this.car.z) {
-      this.car.x = fixed.x;
-      this.car.z = fixed.z;
-      if (Math.abs(this.car.speed) > 6) this.car.addDamage(0.08);
-      this.car.speed *= 0.4;
-      this.car.sync();
-    }
-    this.car.x = clamp(this.car.x, -445, 445);
-    this.car.z = clamp(this.car.z, -445, 445);
-    // Keep the car on the bridge deck while crossing the canyon.
-    if (this.car.x > 296 && this.car.x < 364) {
-      this.car.z = clamp(this.car.z, -6.5, 6.5);
-      this.car.sync();
-    }
-    this.x = this.car.x;
-    this.z = this.car.z;
-    this.speed = Math.abs(this.car.speed);
-  }
-
-  /** Third-person camera: behind the player (or car), easing toward its spot. */
+  // Third-person camera. Returns nothing; moves G.camera.
   updateCamera(dt) {
-    if (!this.camera) return;
-    const driving = !!this.car;
-    const dist = driving ? 11.5 : 7.5;
-    const height = driving ? 4.6 : 3.4;
-    const anchorX = driving ? this.car.x : this.x;
-    const anchorZ = driving ? this.car.z : this.z;
-    const anchorY = driving ? 1.2 : 1.6 + this.y;
-    // While driving the camera follows the car's heading; on foot it follows the mouse.
-    const yaw = driving ? this.car.heading : this.camYaw;
-    const cx = anchorX - Math.cos(yaw) * dist;
-    const cz = anchorZ + Math.sin(yaw) * dist;
-    const cy = anchorY + Math.tan(this.camPitch) * dist * 0.55 + (driving ? 0.4 : 0);
-    const k = 1 - Math.pow(0.0001, dt); // frame-rate independent ease
-    this.camera.position.x += (cx - this.camera.position.x) * k;
-    this.camera.position.y += (cy - this.camera.position.y) * k;
-    this.camera.position.z += (cz - this.camera.position.z) * k;
-    this.camera.lookAt(anchorX + Math.cos(yaw) * 6, anchorY + 0.4, anchorZ - Math.sin(yaw) * 6);
+    const cam = this.G.camera;
+    let tx, tz, ty, lookY;
+    if (this.inCar) {
+      const c = this.inCar;
+      const back = 9.5, up = 4.2;
+      tx = c.x - Math.sin(c.angle) * back;
+      tz = c.z - Math.cos(c.angle) * back;
+      ty = heightAt(tx, tz) + up;
+      lookY = heightAt(c.x, c.z) + 1.6;
+      cam.position.x = lerp(cam.position.x, tx, 1 - Math.pow(0.001, dt));
+      cam.position.y = lerp(cam.position.y, ty, 1 - Math.pow(0.001, dt));
+      cam.position.z = lerp(cam.position.z, tz, 1 - Math.pow(0.001, dt));
+      cam.lookAt(c.x, lookY, c.z);
+      return;
+    }
+    const dist = 8.5;
+    const cx = this.pos.x + Math.sin(this.camYaw) * Math.cos(this.camPitch) * dist;
+    const cz = this.pos.z + Math.cos(this.camYaw) * Math.cos(this.camPitch) * dist;
+    const cy = this.pos.y + 2.2 + Math.sin(this.camPitch) * dist;
+    const k = 1 - Math.pow(0.0001, dt);
+    cam.position.x = lerp(cam.position.x, cx, k);
+    cam.position.y = lerp(cam.position.y, Math.max(cy, heightAt(cx, cz) + 1.2), k);
+    cam.position.z = lerp(cam.position.z, cz, k);
+    cam.lookAt(this.pos.x, this.pos.y + 1.7, this.pos.z);
   }
 
-  /** Damage the player; armor absorbs 60% of each hit. Returns true when dead. */
-  damage(amount) {
-    let rest = amount;
-    if (this.armor > 0) {
-      const absorbed = Math.min(this.armor, rest * 0.6);
-      this.armor -= absorbed;
-      rest -= absorbed;
+  // Nearest stealable car within 3.5 m (not a police car, not the snowcat unless mission 3).
+  nearestCar(cars) {
+    let best = null, bd = 3.5;
+    for (const c of cars) {
+      if (c.type === 'police' || c.destroyed) continue;
+      const d = Math.hypot(c.x - this.pos.x, c.z - this.pos.z);
+      if (d < bd) { bd = d; best = c; }
     }
-    this.health -= rest;
-    return this.health <= 0;
+    return best;
+  }
+
+  enterCar(car) {
+    this.inCar = car;
+    car.driver = 'player';
+    this.mesh.visible = false;
+  }
+
+  exitCar() {
+    if (!this.inCar) return;
+    const c = this.inCar;
+    this.inCar = null;
+    c.driver = null;
+    c.speed = 0;
+    // Step out to the car's left side.
+    const sx = c.x + Math.cos(c.angle) * 2.2;
+    const sz = c.z - Math.sin(c.angle) * 2.2;
+    const [cx, cz] = collide(sx, sz, 0.6, this.G.world.colliders);
+    this.pos.set(cx, heightAt(cx, cz), cz);
+    this.mesh.visible = true;
   }
 }

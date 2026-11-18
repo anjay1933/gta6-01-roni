@@ -1,144 +1,155 @@
-// DUSTLINE wanted system: 1–5 stars, police cars that chase and ram, foot cops
-// at low heat, roadblocks at 3+ stars, stars that decay when the law loses sight
-// of you, and a respray garage that washes the heat away for cash.
-
+// FROSTLINE — wanted level, ski-patrol police, roadblocks, heat decay, respray.
+import * as THREE from 'three';
+import { CFG, GARAGE } from './config.js';
+import { clamp, rand, dist2 } from './util.js';
+import { heightAt } from './world.js';
 import { Car } from './vehicles.js';
-import { WANTED } from './config.js';
-import { clamp, dist2D, angleDiff } from './util.js';
 
 export class Wanted {
-  constructor(scene, town, rng, sound) {
-    this.scene = scene;
-    this.town = town;
-    this.rng = rng;
-    this.sound = sound;
+  constructor(G) {
+    this.G = G;
     this.stars = 0;
-    this.outOfSight = 0;   // seconds since any cop last saw the player
-    this.cops = [];        // police Car instances
-    this.footCops = [];    // Walker instances (created by main, updated here)
+    this.heat = 0; // seconds since last crime / last police sighting
+    this.police = []; // police Car objects
+    this.roadblock = null; // {cars: [Car, Car], x, z, until}
+    this.bustedTimer = 0;
     this.spawnTimer = 0;
-    this.roadblockCars = [];
-    this.roadblockAt = null;
   }
 
   addStars(n, reason) {
-    const before = this.stars;
-    this.stars = clamp(this.stars + n, 0, WANTED.maxStars);
-    if (this.stars > before) this.outOfSight = 0;
-    return this.stars;
+    if (this.stars >= 5) return;
+    this.stars = clamp(this.stars + n, 0, 5);
+    this.heat = 0;
+    this.G.hud.flash(`WANTED +${n} — ${reason}`);
+    this.G.audio.siren(this.stars > 0);
+    if (this.stars >= 3 && !this.roadblock) this.makeRoadblock();
   }
 
-  clear() {
+  setStars(n) {
+    this.stars = clamp(n, 0, 5);
+    this.heat = 0;
+    this.G.audio.siren(this.stars > 0);
+    if (this.stars >= 3 && !this.roadblock) this.makeRoadblock();
+  }
+
+  clear(reason) {
     this.stars = 0;
-    this.outOfSight = 0;
-    this.despawnAll();
+    this.heat = 0;
+    this.G.audio.siren(false);
+    this.despawnPolice();
+    if (reason) this.G.hud.flash(reason);
   }
 
-  despawnAll() {
-    for (const c of this.cops) c.remove(this.scene);
-    this.cops = [];
-    for (const c of this.roadblockCars) c.remove(this.scene);
-    this.roadblockCars = [];
-    this.roadblockAt = null;
-  }
-
-  nearestCopDist(px, pz) {
-    let best = Infinity;
-    for (const c of [...this.cops, ...this.roadblockCars]) {
-      best = Math.min(best, dist2D(px, pz, c.x, c.z));
-    }
-    return best;
-  }
-
-  /** Spawn a police car on the highway near (but not on top of) the player. */
-  spawnCop(px, pz) {
-    const angle = this.rng() * Math.PI * 2;
-    const d = 55 + this.rng() * 35;
-    let x = clamp(px + Math.cos(angle) * d, -440, 440);
-    let z = clamp(pz + Math.sin(angle) * d, -220, 220);
-    // Keep cops on a road: snap to the highway when close to it.
-    if (Math.abs(z) < 40) z = this.rng() < 0.5 ? 3.5 : -3.5;
-    const car = new Car(this.scene, 'police', x, z, this.rng() * Math.PI * 2);
-    car.driver = 'police';
-    this.cops.push(car);
-    return car;
-  }
-
-  /** A roadblock: two police cars parked across the highway ahead of the player. */
-  setRoadblock(px, pz, heading) {
-    this.clearRoadblock();
-    const fx = Math.cos(heading);
-    const fz = -Math.sin(heading);
-    const bx = px + fx * 70;
-    const bz = pz + fz * 70;
-    const rx = -fz;
-    const rz = fx;
+  makeRoadblock() {
+    const p = this.G.player;
+    // Block the road ahead of the player's heading (main street, east side).
+    const bx = clamp(p.x + 45, -140, 140), bz = 0;
+    const cars = [];
     for (const off of [-4, 4]) {
-      const car = new Car(this.scene, 'police', bx + rx * off, bz + rz * off, heading + Math.PI / 2);
-      car.driver = 'police';
-      this.roadblockCars.push(car);
+      const c = new Car(this.G, 'police', bx + off, bz + (off > 0 ? 3 : -3), Math.PI / 2, { driver: 'police' });
+      c.speed = 0;
+      cars.push(c);
+      this.G.cars.push(c);
     }
-    this.roadblockAt = { x: bx, z: bz };
+    this.roadblock = { cars, x: bx, z: bz, until: performance.now() / 1000 + 60 };
+    this.G.hud.flash('ROADBLOCK AHEAD');
   }
 
   clearRoadblock() {
-    for (const c of this.roadblockCars) c.remove(this.scene);
-    this.roadblockCars = [];
-    this.roadblockAt = null;
+    if (!this.roadblock) return;
+    for (const c of this.roadblock.cars) { c.destroyed = true; c.mesh.visible = false; }
+    this.roadblock = null;
   }
 
-  /**
-   * Per-frame update. `player` is { x, z, car|null, speed } and `onBusted` fires
-   * when a cop catches the player on foot, `onRam` when one rams the player's car.
-   * The HUD reads this.stars directly.
-   */
-  update(dt, player, onBusted, onRam) {
-    const targetCops = this.stars === 0 ? 0 : Math.min(1 + this.stars, 5);
+  despawnPolice() {
+    for (const c of this.police) { c.destroyed = true; c.mesh.visible = false; }
+    this.police = [];
+    this.clearRoadblock();
+  }
+
+  // How many patrol cars the current wanted level fields.
+  wantedCarCount() {
+    return this.stars <= 1 ? 1 : this.stars === 2 ? 2 : this.stars === 3 ? 3 : 4;
+  }
+
+  spawnPolice() {
+    const p = this.G.player;
+    const want = this.wantedCarCount();
+    const alive = this.police.filter((c) => !c.destroyed);
+    if (alive.length >= want) return;
+    // Spawn on the road behind / ahead of the player.
+    const a = rand(Math.PI * 2);
+    const sx = clamp(p.x + Math.sin(a) * 55, -200, 200);
+    const sz = clamp(p.z + Math.cos(a) * 55, -150, 200);
+    const car = new Car(this.G, 'police', sx, sz, Math.atan2(p.x - sx, p.z - sz), { driver: 'police' });
+    this.police.push(car);
+    this.G.cars.push(car);
+  }
+
+  // Police chase: ram the player (car or foot), give up when far.
+  update(dt) {
+    const p = this.G.player;
     this.spawnTimer -= dt;
-    if (this.cops.length < targetCops && this.spawnTimer <= 0) {
-      this.spawnCop(player.x, player.z);
-      this.spawnTimer = 2.5;
-    }
-    // Too many cops (stars fell): send the extras home.
-    while (this.cops.length > targetCops) {
-      const c = this.cops.pop();
-      c.remove(this.scene);
-    }
-    // Roadblocks at 3+ stars, parked across the player's heading.
-    if (this.stars >= WANTED.roadblockAt && !this.roadblockAt) {
-      const heading = player.car ? player.car.heading : player.heading;
-      this.setRoadblock(player.x, player.z, heading);
-    } else if (this.stars < WANTED.roadblockAt && this.roadblockAt) {
-      this.clearRoadblock();
-    }
-    // Chase: each cop steers at the player and rams.
-    for (const cop of this.cops) {
-      const d = dist2D(cop.x, cop.z, player.x, player.z);
-      const want = Math.atan2(-(player.z - cop.z), player.x - cop.x);
-      const steer = clamp(angleDiff(cop.heading, want) * 1.8, -1, 1);
-      const throttle = d > 6 ? 1 : 0.4;
-      cop.drive(throttle, steer, dt);
-      cop.updateSmoke(dt);
-      if (d < 4.2) {
-        if (player.car) {
-          onRam(cop);
-        } else if (this.stars >= 1) {
-          onBusted();
-          return;
+    if (this.stars > 0 && this.spawnTimer <= 0) { this.spawnPolice(); this.spawnTimer = 1.2; }
+    // Heat decay: no crime and no police nearby for a while cools one star off.
+    const px = p.inCar ? p.inCar.x : p.x;
+    const pz = p.inCar ? p.inCar.z : p.z;
+    let nearest = 1e9;
+    for (const c of this.police) if (!c.destroyed) nearest = Math.min(nearest, dist2(c.x, c.z, px, pz));
+    if (this.stars > 0) {
+      if (nearest > 70) {
+        this.heat += dt;
+        if (this.heat > CFG.heatDecaySeconds) {
+          this.stars--;
+          this.heat = 0;
+          this.G.hud.flash(this.stars === 0 ? 'HEAT OFF — you are clean' : `Wanted down to ${this.stars} star${this.stars > 1 ? 's' : ''}`);
+          this.G.audio.siren(this.stars > 0);
+          if (this.stars < 3) this.clearRoadblock();
+          if (this.stars === 0) this.despawnPolice();
         }
+      } else this.heat = 0;
+    }
+    // Busted check: police car touching the player while wanted and slow.
+    if (this.stars > 0) {
+      const speed = p.inCar ? Math.abs(p.inCar.speed) : 0;
+      if (nearest < 3.2 && speed < 2 && !p.inCar) {
+        this.bustedTimer += dt;
+        if (this.bustedTimer > 1.6) { this.bustedTimer = 0; this.G.gameOver('busted'); }
+      } else this.bustedTimer = 0;
+    }
+    // Chase steering for each patrol car.
+    for (const c of this.police) {
+      if (c.destroyed) continue;
+      const dx = px - c.x, dz = pz - c.z;
+      const d = Math.hypot(dx, dz);
+      if (d > 260) { c.destroyed = true; c.mesh.visible = false; continue; }
+      const wantAngle = Math.atan2(dx, dz);
+      const diff = ((wantAngle - c.angle + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+      const ctrl = {
+        f: d > 6,
+        b: false,
+        l: diff > 0.15,
+        r: diff < -0.15,
+        handbrake: false,
+      };
+      c.update(dt, ctrl);
+      // Ram: shove the player's car on contact.
+      if (p.inCar && d < 4.2) {
+        p.inCar.speed *= 0.92;
+        p.inCar.damage(2 * dt * 10);
+        if (p.inCar.health <= 0) this.G.gameOver('wasted');
       }
     }
-    // Decay: stars drop when no cop can see the player for a while.
-    const nearest = this.nearestCopDist(player.x, player.z);
-    if (this.stars > 0 && nearest > 60) {
-      this.outOfSight += dt;
-      if (this.outOfSight > WANTED.decaySeconds) {
-        this.stars -= 1;
-        this.outOfSight = 0;
-      }
-    } else {
-      this.outOfSight = 0;
+    // Roadblock expiry.
+    if (this.roadblock && performance.now() / 1000 > this.roadblock.until) this.clearRoadblock();
+    // Respray: at the garage, press G to clear wanted for cash.
+    if (this.stars > 0 && dist2(px, pz, GARAGE.x, GARAGE.z) < 10 && this.G.input.g) {
+      if (p.cash >= CFG.resprayCost) {
+        p.cash -= CFG.resprayCost;
+        this.clear('RESPRAYED — wanted cleared');
+        this.G.audio.pickup();
+      } else this.G.hud.flash('Not enough cash for a respray ($150)');
+      this.G.input.g = false;
     }
-    this.sound.siren(this.stars > 0 && nearest < 120, dt);
   }
 }

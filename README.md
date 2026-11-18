@@ -6,42 +6,43 @@
 
 Built for make.fun's [Make GTA 6](https://make.fun/bounty/gta6-01) bounty — $1,666 in USDC.
 
-# DUSTLINE — a 3D open-world crime game
+# FROSTLINE — a 3D open-world crime game
 
-A third-person open-world action game in the browser. You are Jax Marlowe, a driver for The Dustline Runners, working Copper Flats — a sun-baked desert highway town at golden hour: steal cars, outrun the law, and run six story missions from the gas station strip to the canyon bridge.
+A third-person open-world action game in the browser. You are Mara Voss, getaway driver for the Whiteout Crew, working Frostline Pass — a remote snowy alpine resort town at dusk, aurora in the sky, a frozen lake, pine forests, a ski lodge and a chairlift. Steal cars, outrun the ski patrol, and run six story missions from the lodge to the south gate.
 
 ## Run it
 
-Open `game/index.html` in a desktop browser (or serve the `game/` folder with any static file server).
+Open `game/index.html` in a desktop browser (or serve the `game/` folder with any static file server: `node serve.ts` → http://localhost:8080).
 
 No build step, no network requests, no fetched assets: Three.js is vendored under `game/vendor/`, the town and textures are generated in code, and the sounds are synthesized with WebAudio.
 
 ## The game
 
-- **Open world:** procedural desert highway town — highway strip with gas stations, motels and glowing diner signs, a low-rise downtown with a water tower, a canyon bridge, a quarry, and desert outskirts with mesas and drifting dust. Golden-hour sun, long shadows, dust haze.
-- **On foot + driving:** third-person on foot (run, jump) and several car types to steal and drive, with arcade handling, damage and smoke.
-- **Traffic + pedestrians:** AI cars follow the roads, pedestrians walk the sidewalks and flee when shots are fired.
-- **Wanted 1–5 stars:** car theft, hitting pedestrians and shooting raise your stars; foot cops chase, patrol cars ram you with light bars flashing. Lay low to cool off, or clear stars at the paint shop.
-- **6 story missions:** First Pickup, Bridge Run, Quarry Heist, Hot Getaway, Main-Street Shootout, Desert Escape — with objective markers, cash rewards and progression.
-- **Combat:** pistol with tracers, drive-by shooting from a car, fists, health/armor/ammo pickups, armed rivals.
-- **HUD + minimap:** cash, health/armor, ammo, wanted stars, speed, objective + distance, and a live 2D minimap.
-- **Save:** progress (cash, missions, unlocks) persists in localStorage; start screen, pause menu, busted/wasted/game-complete screens.
+- **Open world:** procedural alpine resort town — a main street of shops and a diner, the Frostline Lodge, seven cabins, a chairlift climbing the north slope, a frozen lake with an ice-fishing hut, pine forests, and an icy mountain pass road to the south gate. Dusk light, aurora ribbons, drifting snow.
+- **On foot + driving:** third-person on foot (run, jump) and five car types to steal and drive, with arcade handling that slides on ice, damage and smoke.
+- **Traffic + pedestrians:** AI cars follow the town roads, pedestrians stroll the sidewalks and flee when shots are fired.
+- **Wanted 1–5 stars:** car theft, hitting pedestrians and shooting raise your stars; patrol SUVs chase and ram, roadblocks go up at 3+ stars. Lay low to cool off, or clear stars at the Snowline Garage ($150 respray).
+- **6 story missions:** First Pickup, Powder Run, Lift House Heist, Hot Getaway, Lodge Shootout, Whiteout Escape — with objective markers, cash rewards and progression. Final mission runs on a 150-second timer in a blizzard.
+- **Combat:** pistol with tracers and aim assist, drive-by shooting from a car, fists, health/armor/ammo pickups, armed rivals in the lodge shootout.
+- **HUD + minimap:** cash, health/armor, ammo, wanted stars, speed, objective + distance, and a live 2D minimap with roads, the frozen lake, mission marker and police blips.
+- **Save:** progress (cash, missions, health/armor/ammo) persists in localStorage; start screen, pause menu, busted/wasted and game-complete screens.
 
 ## Controls
 
-- **W A S D** move · **Mouse** look/aim · **Shift** sprint · **Space** jump
+- **W A S D** move / drive · **Mouse** look/aim (click to lock) · **Shift** sprint · **Space** jump / handbrake
 - **E** enter/exit car · **Click** shoot · **F** punch
-- **R** drive-by while driving · **G** respray at the blue SPRAY garage ($150, clears wanted)
+- **R** drive-by while driving · **G** respray at the garage ($150, clears wanted)
 - **P / Esc** pause · **M** mute
 
 ## Tips
 
-- **Wanted?** Steal a car and hit the blue SPRAY garage ($150) to clear your stars — or lay low until the heat cools off.
+- **Wanted?** Drive into the Snowline Garage and press **G** ($150) to clear your stars — or lay low until the heat cools off.
+- **Ice is slick:** the frozen lake and snowy ground slide — brake early, steer gently, and use the handbrake to swing around.
 
 ## Files
 
 - `game/` — the playable game; open `game/index.html`
-- `game/src/` — game code (city, player, vehicles, traffic, police, missions, combat, HUD, audio)
+- `game/src/` — game code (config, world, player, vehicles, people, wanted, combat, missions, HUD, audio, shots)
 - `game/vendor/` — vendored Three.js, works fully offline
 - `screenshots/` — staged renders of the game
 - `main.ts` — builds the submission dossier

@@ -1,57 +1,32 @@
-// DUSTLINE dev server: serves game/ on http://localhost:8080 so the game can be
-// played and screenshotted in a desktop browser with no build step.
-// Node 22, standard library only. Usage: node serve.ts [--port 8080]
-
-import { createReadStream, statSync } from 'node:fs';
+// FROSTLINE — tiny static server for local play-testing only.
+// Serves game/ at http://localhost:8080 (open game/index.html there).
+// Not part of the submission; the game itself needs no server at all.
 import { createServer } from 'node:http';
-import { extname, join, normalize, resolve, sep } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = resolve(fileURLToPath(new URL('./game', import.meta.url)));
-const portArg = process.argv.indexOf('--port');
-const port = portArg === -1 ? 8080 : Number(process.argv[portArg + 1]) || 8080;
-
-const TYPES = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.mjs': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
+const root = join(fileURLToPath(new URL('.', import.meta.url)), 'game');
+const types = {
+  '.html': 'text/html',
+  '.js': 'text/javascript',
+  '.mjs': 'text/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
 };
 
-createServer((req, res) => {
-  let path = '/';
+createServer(async (req, res) => {
   try {
-    path = decodeURIComponent(new URL(req.url ?? '/', 'http://localhost').pathname);
+    const path = req.url.split('?')[0];
+    const file = join(root, path === '/' ? 'index.html' : decodeURIComponent(path));
+    if (!file.startsWith(root)) { res.writeHead(403); res.end(); return; }
+    const data = await readFile(file);
+    res.writeHead(200, { 'Content-Type': types[extname(file)] ?? 'application/octet-stream' });
+    res.end(data);
   } catch {
-    res.writeHead(400).end('bad request');
-    return;
+    res.writeHead(404);
+    res.end('not found');
   }
-  if (path.endsWith('/')) path += 'index.html';
-  const file = resolve(join(root, normalize(path)));
-  if (file !== root && !file.startsWith(root + sep)) {
-    res.writeHead(403).end('forbidden');
-    return;
-  }
-  let size;
-  try {
-    const st = statSync(file);
-    if (!st.isFile()) throw new Error('not a file');
-    size = st.size;
-  } catch {
-    res.writeHead(404).end('not found');
-    return;
-  }
-  res.writeHead(200, {
-    'content-type': TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream',
-    'content-length': size,
-    'cache-control': 'no-store',
-  });
-  createReadStream(file).pipe(res);
-}).listen(port, '127.0.0.1', () => {
-  console.log(`DUSTLINE game/ is on http://localhost:${port}`);
-  console.log(`Serving files from ${root}`);
-});
+}).listen(8080, () => console.log('FROSTLINE at http://localhost:8080'));
