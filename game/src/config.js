@@ -1,18 +1,18 @@
-// DUSTLINE tuning: every number that shapes the town, the cars, the law and the jobs.
-// One place to balance the game without hunting through the systems.
+// DUSTLINE balance sheet: every number that shapes Copper Flats, the cars, the
+// law and the six jobs. Tune the game here, not by hunting through the systems.
 
 export const WORLD = {
   size: 900,            // ground plane, metres across
-  highwayZ: 0,          // main east-west highway runs along x at z = 0
+  highwayZ: 0,          // the main east-west highway runs along x at z = 0
   highwayHalfWidth: 7,
-  bridgeX: 300,         // canyon bridge starts here (east edge)
-  canyonX: 330,         // canyon gap centre
+  bridgeX: 300,         // the canyon bridge deck starts here (east edge)
+  canyonX: 330,         // centre of the canyon gap
   quarry: { x: -270, z: 230 },
   downtown: { x0: -150, x1: 150, z0: -190, z1: -50 },
   gasStation: { x: -190, z: 26 },
   motel: { x: -120, z: -26 },
   diner: { x: 90, z: 26 },
-  garage: { x: 170, z: -26 },   // respray garage (clears wanted for cash)
+  garage: { x: 170, z: -26 },   // respray garage — clears wanted for cash
   waterTower: { x: 0, z: -120 },
   fogColor: 0xe8a05c,
   sunColor: 0xffb36b,
@@ -38,13 +38,13 @@ export const PLAYER = {
 };
 
 export const CARS = {
-  // name, top speed (m/s), accel, grip, colour, body length
-  sedan:  { label: 'Sedan',      top: 34, accel: 15, grip: 2.6, color: 0x7a8ba0, len: 4.4 },
-  pickup: { label: 'Pickup',     top: 30, accel: 13, grip: 2.2, color: 0xa8542e, len: 4.8 },
-  muscle: { label: 'Muscle',     top: 42, accel: 20, grip: 2.0, color: 0xc22e2e, len: 4.6 },
-  coupe:  { label: 'Coupe',      top: 38, accel: 17, grip: 2.9, color: 0x2e6db0, len: 4.2 },
-  truck:  { label: 'Box Truck',  top: 24, accel: 9,  grip: 1.8, color: 0xd8cdb0, len: 6.2 },
-  police: { label: 'Police',     top: 40, accel: 19, grip: 2.8, color: 0x1c1e24, len: 4.5 },
+  // label, top speed (m/s), acceleration, grip, paint, body length
+  sedan:  { label: 'Sedan',     top: 34, accel: 15, grip: 2.6, color: 0x7a8ba0, len: 4.4 },
+  pickup: { label: 'Pickup',    top: 30, accel: 13, grip: 2.2, color: 0xa8542e, len: 4.8 },
+  muscle: { label: 'Muscle',    top: 42, accel: 20, grip: 2.0, color: 0xc22e2e, len: 4.6 },
+  coupe:  { label: 'Coupe',     top: 38, accel: 17, grip: 2.9, color: 0x2e6db0, len: 4.2 },
+  truck:  { label: 'Box Truck', top: 24, accel: 9,  grip: 1.8, color: 0xd8cdb0, len: 6.2 },
+  police: { label: 'Police',    top: 40, accel: 19, grip: 2.8, color: 0x1c1e24, len: 4.5 },
 };
 
 export const WANTED = {
@@ -53,7 +53,7 @@ export const WANTED = {
   crimeHitPed: 1,
   crimeShootNearCop: 1,
   crimeKillCop: 2,
-  decaySeconds: 9,      // seconds out of cop sight before one star drops
+  decaySeconds: 9,      // seconds out of cop sight before one star falls off
   resprayCost: 150,
   copChaseSpeed: 36,
   copRamDamage: 6,

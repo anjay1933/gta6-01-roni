@@ -1,7 +1,7 @@
-// DUSTLINE world: the whole town of Copper Flats, built procedurally from boxes,
-// cylinders and canvas-painted signs — no models, no textures from disk, no network.
-// Golden-hour sun, long shadows, dust haze, a highway, a downtown grid, a canyon
-// bridge, a quarry and mesas on the rim. Deterministic: same seed, same town.
+// DUSTLINE world: Copper Flats, built procedurally from boxes, cylinders and
+// canvas-painted signs. No downloaded models, no textures from disk, no network:
+// golden-hour sun, long shadows, dust haze, a highway, a downtown grid, a canyon
+// bridge, a quarry and mesas ringing the desert. Deterministic — one seed, one town.
 
 import * as THREE from 'three';
 import { WORLD } from './config.js';
@@ -13,7 +13,7 @@ const ASPHALT = 0x2e2a28;
 const SIDEWALK = 0x8a7a68;
 const ROOF = 0x5a3a28;
 
-/** Paint a glowing shop sign on a canvas — runtime texture, nothing fetched. */
+/** A glowing shop sign painted on a canvas at runtime — nothing fetched. */
 export function makeSignTexture(text, sub, bg, fg, accent) {
   const c = document.createElement('canvas');
   c.width = 512;
@@ -41,8 +41,8 @@ export function makeSignTexture(text, sub, bg, fg, accent) {
   return tex;
 }
 
-function boxMat(color, opts = {}) {
-  return new THREE.MeshStandardMaterial({ color, roughness: 0.92, metalness: 0.04, ...opts });
+function stdMat(color, extra = {}) {
+  return new THREE.MeshStandardMaterial({ color, roughness: 0.92, metalness: 0.04, ...extra });
 }
 
 export class Town {
@@ -61,10 +61,13 @@ export class Town {
   }
 
   addCollider(x0, z0, x1, z1) {
-    this.colliders.push({ x0: Math.min(x0, x1), z0: Math.min(z0, z1), x1: Math.max(x0, x1), z1: Math.max(z0, z1) });
+    this.colliders.push({
+      x0: Math.min(x0, x1), z0: Math.min(z0, z1),
+      x1: Math.max(x0, x1), z1: Math.max(z0, z1),
+    });
   }
 
-  /** True when point (x,z) is inside any solid collider. */
+  /** True when the point (x, z) sits inside any solid box. */
   solidAt(x, z) {
     for (const c of this.colliders) {
       if (x >= c.x0 && x <= c.x1 && z >= c.z0 && z <= c.z1) return true;
@@ -72,7 +75,7 @@ export class Town {
     return false;
   }
 
-  /** Push a circle (x,z,r) out of colliders; returns corrected {x,z}. */
+  /** Push a circle of radius r out of every collider it overlaps. */
   resolveCircle(x, z, r) {
     for (const c of this.colliders) {
       const cx = clamp(x, c.x0, c.x1);
@@ -80,25 +83,26 @@ export class Town {
       const dx = x - cx;
       const dz = z - cz;
       const d2 = dx * dx + dz * dz;
-      if (d2 < r * r) {
-        if (d2 > 1e-6) {
-          const d = Math.sqrt(d2);
-          x = cx + (dx / d) * r;
-          z = cz + (dz / d) * r;
-        } else {
-          // centre inside the box: shove out along the smallest penetration
-          const pl = x - c.x0 + r, pr = c.x1 - x + r, pt = z - c.z0 + r, pb = c.z1 - z + r;
-          const m = Math.min(pl, pr, pt, pb);
-          if (m === pl) x = c.x0 - r; else if (m === pr) x = c.x1 + r;
-          else if (m === pt) z = c.z0 - r; else z = c.z1 + r;
-        }
+      if (d2 >= r * r) continue;
+      if (d2 > 1e-6) {
+        const d = Math.sqrt(d2);
+        x = cx + (dx / d) * r;
+        z = cz + (dz / d) * r;
+      } else {
+        // Centre buried in the box: shove out through the nearest face.
+        const pl = x - c.x0 + r, pr = c.x1 - x + r, pt = z - c.z0 + r, pb = c.z1 - z + r;
+        const m = Math.min(pl, pr, pt, pb);
+        if (m === pl) x = c.x0 - r;
+        else if (m === pr) x = c.x1 + r;
+        else if (m === pt) z = c.z0 - r;
+        else z = c.z1 + r;
       }
     }
     return { x, z };
   }
 
-  box(w, h, d, color, x, y, z, opts = {}) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), boxMat(color, opts));
+  box(w, h, d, color, x, y, z, extra = {}) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), stdMat(color, extra));
     m.position.set(x, y, z);
     m.castShadow = true;
     m.receiveShadow = true;
@@ -106,8 +110,8 @@ export class Town {
     return m;
   }
 
-  cyl(rt, rb, h, color, x, y, z, seg = 12, opts = {}) {
-    const m = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg), boxMat(color, opts));
+  cyl(rt, rb, h, color, x, y, z, seg = 12, extra = {}) {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg), stdMat(color, extra));
     m.position.set(x, y, z);
     m.castShadow = true;
     m.receiveShadow = true;
@@ -136,7 +140,7 @@ export class Town {
   buildSky() {
     const scene = this.scene;
     scene.fog = new THREE.Fog(WORLD.fogColor, 180, 820);
-    // Gradient dome: warm horizon, dusty blue-violet up top.
+    // Gradient dome: dusty violet up top, warm orange at the horizon.
     const geo = new THREE.SphereGeometry(760, 24, 12);
     const top = new THREE.Color(0x7a6a9a);
     const mid = new THREE.Color(0xe8a05c);
@@ -145,11 +149,17 @@ export class Town {
     const colors = new Float32Array(pos.count * 3);
     for (let i = 0; i < pos.count; i++) {
       const y = pos.getY(i) / 760;
-      const c = y > 0.25 ? top.clone().lerp(mid, 1 - (y - 0.25) / 0.75) : mid.clone().lerp(bot, 1 - (y + 1) / 1.25);
-      colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b;
+      const c = y > 0.25
+        ? top.clone().lerp(mid, 1 - (y - 0.25) / 0.75)
+        : mid.clone().lerp(bot, 1 - (y + 1) / 1.25);
+      colors[i * 3] = c.r;
+      colors[i * 3 + 1] = c.g;
+      colors[i * 3 + 2] = c.b;
     }
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    const sky = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false }));
+    const sky = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+      vertexColors: true, side: THREE.BackSide, fog: false,
+    }));
     this.group.add(sky);
 
     // Low golden sun disc.
@@ -167,8 +177,10 @@ export class Town {
     dir.position.set(-260, 150, -140);
     dir.castShadow = true;
     dir.shadow.mapSize.set(1024, 1024);
-    dir.shadow.camera.left = -260; dir.shadow.camera.right = 260;
-    dir.shadow.camera.top = 260; dir.shadow.camera.bottom = -260;
+    dir.shadow.camera.left = -260;
+    dir.shadow.camera.right = 260;
+    dir.shadow.camera.top = 260;
+    dir.shadow.camera.bottom = -260;
     dir.shadow.camera.far = 900;
     dir.shadow.bias = -0.0006;
     scene.add(dir);
@@ -177,26 +189,29 @@ export class Town {
 
   buildGround() {
     const rng = this.rng;
-    // West landmass (town side) and east landmass (past the canyon).
-    const west = new THREE.Mesh(new THREE.PlaneGeometry(760, WORLD.size), boxMat(SAND));
+    // West landmass (town side) and the east strip past the canyon.
+    const west = new THREE.Mesh(new THREE.PlaneGeometry(760, WORLD.size), stdMat(SAND));
     west.rotation.x = -Math.PI / 2;
     west.position.set(-70, 0, 0);
     west.receiveShadow = true;
     this.group.add(west);
-    const east = new THREE.Mesh(new THREE.PlaneGeometry(120, WORLD.size), boxMat(0xbd8250));
+    const east = new THREE.Mesh(new THREE.PlaneGeometry(120, WORLD.size), stdMat(0xbd8250));
     east.rotation.x = -Math.PI / 2;
     east.position.set(390, 0, 0);
     east.receiveShadow = true;
     this.group.add(east);
     // Canyon walls below the gap.
     this.box(62, 26, WORLD.size, 0x8a4f2c, 330, -13, 0);
-    // Desert patches: darker sand discs for texture.
+    // Desert patches: darker sand discs to break up the flat ground.
     for (let i = 0; i < 46; i++) {
       const x = -440 + rng() * 880;
       const z = -430 + rng() * 860;
-      if (Math.abs(z) < 12 && x > -450 && x < 300) continue; // keep the highway clean
+      if (Math.abs(z) < 12 && x > -450 && x < 300) continue; // keep the highway clear
       const r = 8 + rng() * 26;
-      const disc = new THREE.Mesh(new THREE.CircleGeometry(r, 18), boxMat(rng() < 0.5 ? SAND_DARK : 0xd69a5e));
+      const disc = new THREE.Mesh(
+        new THREE.CircleGeometry(r, 18),
+        stdMat(rng() < 0.5 ? SAND_DARK : 0xd69a5e),
+      );
       disc.rotation.x = -Math.PI / 2;
       disc.position.set(x, 0.04, z);
       disc.receiveShadow = true;
@@ -206,9 +221,10 @@ export class Town {
 
   roadStrip(x0, z0, x1, z1, width) {
     const len = Math.hypot(x1 - x0, z1 - z0);
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(len, width), boxMat(ASPHALT));
+    const angle = -Math.atan2(z1 - z0, x1 - x0);
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(len, width), stdMat(ASPHALT));
     m.rotation.x = -Math.PI / 2;
-    m.rotation.z = -Math.atan2(z1 - z0, x1 - x0);
+    m.rotation.z = angle;
     m.position.set((x0 + x1) / 2, 0.06, (z0 + z1) / 2);
     m.receiveShadow = true;
     this.group.add(m);
@@ -218,16 +234,19 @@ export class Town {
       const t = (i + 0.5) / steps;
       const x = x0 + (x1 - x0) * t;
       const z = z0 + (z1 - z0) * t;
-      const dash = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 0.35), boxMat(0xd8cdb0, { roughness: 0.6 }));
+      const dash = new THREE.Mesh(
+        new THREE.PlaneGeometry(3.2, 0.35),
+        stdMat(0xd8cdb0, { roughness: 0.6 }),
+      );
       dash.rotation.x = -Math.PI / 2;
-      dash.rotation.z = -Math.atan2(z1 - z0, x1 - x0);
+      dash.rotation.z = angle;
       dash.position.set(x, 0.09, z);
       this.group.add(dash);
     }
   }
 
   buildHighway() {
-    // Main east-west highway, west of the canyon, plus the east stub.
+    // Main east-west highway west of the canyon, plus the east stub.
     this.roadStrip(-450, 0, 300, 0, WORLD.highwayHalfWidth * 2);
     this.roadStrip(360, 0, 450, 0, WORLD.highwayHalfWidth * 2);
     // Downtown cross streets.
@@ -235,7 +254,7 @@ export class Town {
     for (const x of [-120, -40, 40, 120]) this.roadStrip(x, -200, x, -40, 9);
     // Sidewalk ribbons along the highway.
     for (const z of [-10.5, 10.5]) {
-      const walk = new THREE.Mesh(new THREE.PlaneGeometry(750, 3.4), boxMat(SIDEWALK));
+      const walk = new THREE.Mesh(new THREE.PlaneGeometry(750, 3.4), stdMat(SIDEWALK));
       walk.rotation.x = -Math.PI / 2;
       walk.position.set(-75, 0.05, z);
       walk.receiveShadow = true;
@@ -243,15 +262,12 @@ export class Town {
     }
   }
 
-  /** A plain low-rise block with a flat roof, door and lit windows. */
+  /** One low-rise block: body, flat roof, door and lit windows on the street face. */
   block(x, z, w, d, h, color) {
     this.box(w, h, d, color, x, h / 2, z);
     this.box(w + 0.6, 0.5, d + 0.6, ROOF, x, h + 0.2, z);
-    // Roof clutter.
-    this.box(1.6, 1.0, 1.6, 0x6a6a6a, x - w / 4, h + 0.9, z);
-    // Door facing the street.
-    this.box(2.2, 3.2, 0.3, 0x2a1c12, x, 1.6, z + d / 2 + 0.1);
-    // Lit windows on the street face.
+    this.box(1.6, 1.0, 1.6, 0x6a6a6a, x - w / 4, h + 0.9, z); // roof clutter
+    this.box(2.2, 3.2, 0.3, 0x2a1c12, x, 1.6, z + d / 2 + 0.1); // door
     const rng = this.rng;
     const n = Math.max(2, Math.floor(w / 6));
     for (let i = 0; i < n; i++) {
@@ -359,7 +375,7 @@ export class Town {
     this.group.add(msign);
     this.signs.push(msign);
 
-    // Diner: small building + neon sign, south side.
+    // Diner: small building with a neon sign, south side.
     const dx = WORLD.diner.x, dz = WORLD.diner.z;
     this.box(14, 5, 10, 0xb08a5a, dx, 2.5, dz);
     this.box(14.6, 0.5, 10.6, 0x8a2a2a, dx, 5.2, dz);
@@ -393,13 +409,13 @@ export class Town {
   buildWaterTower() {
     const { x, z } = WORLD.waterTower;
     for (const [lx, lz] of [[-4, -4], [4, -4], [-4, 4], [4, 4]]) {
-      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 14, 8), boxMat(0x5a4a3a));
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 14, 8), stdMat(0x5a4a3a));
       leg.position.set(x + lx, 7, z + lz);
       leg.castShadow = true;
       this.group.add(leg);
     }
     const tank = this.cyl(5.5, 5.5, 7, 0x9a8a7a, x, 17, z, 16);
-    const cap = new THREE.Mesh(new THREE.SphereGeometry(5.5, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), boxMat(0x7a6a5a));
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(5.5, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), stdMat(0x7a6a5a));
     cap.position.set(x, 20.5, z);
     cap.castShadow = true;
     this.group.add(cap);
@@ -408,7 +424,7 @@ export class Town {
   }
 
   buildBridge() {
-    // Deck spanning the canyon gap x = 300..360, with rails and pillars.
+    // Deck over the canyon gap x = 300..360, with rails and pillars.
     const deck = this.box(62, 1.4, 16, 0x6a6258, 330, 1.2, 0);
     deck.receiveShadow = true;
     for (const z of [-7.6, 7.6]) this.box(62, 1.1, 0.5, 0xc22e2e, 330, 2.4, z);
@@ -417,13 +433,13 @@ export class Town {
       this.box(3, 26, 3, 0x5a5048, x, -12, 6);
     }
     // Canyon floor far below.
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(62, WORLD.size), boxMat(0x6e3a20));
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(62, WORLD.size), stdMat(0x6e3a20));
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(330, -26, 0);
     this.group.add(floor);
     // Centre dashes on the deck.
     for (let i = 0; i < 6; i++) {
-      const dash = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 0.35), boxMat(0xd8cdb0));
+      const dash = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 0.35), stdMat(0xd8cdb0));
       dash.rotation.x = -Math.PI / 2;
       dash.position.set(306 + i * 9.6, 1.95, 0);
       this.group.add(dash);
@@ -433,24 +449,23 @@ export class Town {
   buildQuarry() {
     const { x, z } = WORLD.quarry;
     const rng = this.rng;
-    // A walled quarry yard: three concentric retaining walls stepping inward,
-    // each with a gap facing north (toward town) so the player can walk in.
-    // The dark floor disc reads as dug earth; the crates sit on it in plain sight.
+    // A walled yard: three stepped retaining rings, each open to the north so the
+    // player can walk in. Dark dug-earth floor; the crates sit on it in plain sight.
     for (let i = 0; i < 3; i++) {
       const ring = new THREE.Mesh(
         new THREE.CylinderGeometry(34 - i * 9, 38 - i * 9, 2.2, 24, 1, true, Math.PI + 0.55, Math.PI * 2 - 1.1),
-        boxMat(i === 0 ? 0x8a6a4a : 0x7a5a3e, { side: THREE.DoubleSide }),
+        stdMat(i === 0 ? 0x8a6a4a : 0x7a5a3e, { side: THREE.DoubleSide }),
       );
       ring.position.set(x, 1.1, z);
       ring.receiveShadow = true;
       this.group.add(ring);
     }
-    const floor = new THREE.Mesh(new THREE.CircleGeometry(34, 24), boxMat(0x5a4028));
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(34, 24), stdMat(0x5a4028));
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(x, 0.08, z);
     floor.receiveShadow = true;
     this.group.add(floor);
-    // Crates (the heist targets) and rubble, all above ground and visible.
+    // Crates (the heist targets) plus rubble, all above ground and visible.
     for (let i = 0; i < 8; i++) {
       const cx = x - 10 + rng() * 20;
       const cz = z - 10 + rng() * 20;
@@ -459,7 +474,7 @@ export class Town {
       if (i < 3) this.crates.push(crate);
     }
     for (let i = 0; i < 10; i++) {
-      const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(1 + rng() * 2), boxMat(0x7a5a40));
+      const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(1 + rng() * 2), stdMat(0x7a5a40));
       rock.position.set(x - 30 + rng() * 60, 0.8, z - 30 + rng() * 60);
       rock.rotation.set(rng() * 3, rng() * 3, rng() * 3);
       rock.castShadow = true;
@@ -475,13 +490,13 @@ export class Town {
       [60, 380, 70, 55], [-430, 0, 60, 90], [260, 380, 80, 60],
     ];
     for (const [x, z, w, h] of spots) {
-      const mesa = new THREE.Mesh(new THREE.CylinderGeometry(w * 0.55, w * 0.75, h, 7), boxMat(0xa85f34));
+      const mesa = new THREE.Mesh(new THREE.CylinderGeometry(w * 0.55, w * 0.75, h, 7), stdMat(0xa85f34));
       mesa.position.set(x, h / 2 - 2, z);
       mesa.rotation.y = rng() * Math.PI;
       mesa.castShadow = true;
       mesa.receiveShadow = true;
       this.group.add(mesa);
-      const cap = new THREE.Mesh(new THREE.CylinderGeometry(w * 0.58, w * 0.58, 6, 7), boxMat(0x7a4024));
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(w * 0.58, w * 0.58, 6, 7), stdMat(0x7a4024));
       cap.position.set(x, h - 2, z);
       cap.rotation.y = mesa.rotation.y;
       cap.castShadow = true;
@@ -491,7 +506,7 @@ export class Town {
 
   buildProps() {
     const rng = this.rng;
-    // Cacti and rocks scattered in the desert, clear of roads and the town core.
+    // Cacti and rocks in the desert, kept clear of roads and the town core.
     for (let i = 0; i < 90; i++) {
       const x = -440 + rng() * 880;
       const z = -430 + rng() * 860;
@@ -501,14 +516,14 @@ export class Town {
       if (rng() < 0.55) {
         const h = 2.5 + rng() * 3;
         this.cyl(0.5, 0.6, h, 0x4a7a3a, x, h / 2, z, 8);
-        const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 1.6, 8), boxMat(0x4a7a3a));
+        const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 1.6, 8), stdMat(0x4a7a3a));
         arm.rotation.z = Math.PI / 2;
         arm.position.set(x + 0.9, h * 0.55, z);
         arm.castShadow = true;
         this.group.add(arm);
         this.addCollider(x - 0.7, z - 0.7, x + 0.7, z + 0.7);
       } else {
-        const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.8 + rng() * 1.8), boxMat(0x8a6a4a));
+        const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.8 + rng() * 1.8), stdMat(0x8a6a4a));
         rock.position.set(x, 0.7, z);
         rock.rotation.set(rng() * 3, rng() * 3, rng() * 3);
         rock.castShadow = true;
@@ -540,7 +555,7 @@ export class Town {
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    // Soft round sprite so dust reads as haze, not confetti squares.
+    // Soft round sprite so the dust reads as haze, not confetti squares.
     const c = document.createElement('canvas');
     c.width = 64;
     c.height = 64;
@@ -573,7 +588,7 @@ export class Town {
   }
 
   buildRoads() {
-    // Traffic loops: highway both directions + a downtown rectangle.
+    // Traffic loops: the highway in both directions plus a downtown rectangle.
     this.roads = [
       { loop: true, points: [[-440, 3.5], [295, 3.5], [365, 3.5], [445, 3.5], [445, -3.5], [365, -3.5], [295, -3.5], [-440, -3.5]] },
       { loop: true, points: [[-120, -65.5], [120, -65.5], [120, -194.5], [-120, -194.5]] },

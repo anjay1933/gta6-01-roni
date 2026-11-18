@@ -1,32 +1,38 @@
-// DUSTLINE small helpers: a seeded random stream (so staged screenshots and the
-// town layout are identical every run) plus the vector maths the systems share.
+// DUSTLINE shared math: a seeded RNG so the town, traffic and staged shots are
+// identical on every load, plus the small numeric helpers every system reaches for.
 
-/** mulberry32 — tiny deterministic PRNG. Same seed, same town, same traffic. */
+/** mulberry32 — a tiny deterministic generator. Same seed in, same numbers out. */
 export function makeRng(seed) {
-  let a = seed >>> 0;
-  return function next() {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  let state = seed >>> 0;
+  return function roll() {
+    state |= 0;
+    state = (state + 0x6d2b79f5) | 0;
+    let v = Math.imul(state ^ (state >>> 15), 1 | state);
+    v = (v + Math.imul(v ^ (v >>> 7), 61 | v)) ^ v;
+    return ((v ^ (v >>> 14)) >>> 0) / 4294967296;
   };
 }
 
+/** Clamp a value into [lo, hi]. */
 export function clamp(v, lo, hi) {
-  return v < lo ? lo : v > hi ? hi : v;
+  if (v < lo) return lo;
+  if (v > hi) return hi;
+  return v;
 }
 
-/** Clamp to 0..1 — the range every HUD bar and fade lives in. */
+/** Clamp a value into [0, 1]. */
 export function clamp01(v) {
-  return v < 0 ? 0 : v > 1 ? 1 : v;
+  if (v < 0) return 0;
+  if (v > 1) return 1;
+  return v;
 }
 
+/** Linear blend between a and b. */
 export function lerp(a, b, t) {
   return a + (b - a) * t;
 }
 
-/** Shortest signed angle difference, in radians, wrapped to [-PI, PI]. */
+/** Smallest signed turn from angle a to angle b, wrapped into [-PI, PI]. */
 export function angleDiff(a, b) {
   let d = (b - a) % (Math.PI * 2);
   if (d > Math.PI) d -= Math.PI * 2;
@@ -34,32 +40,33 @@ export function angleDiff(a, b) {
   return d;
 }
 
-/** Turn `current` toward `target` by at most `maxStep` radians. */
-export function turnToward(current, target, maxStep) {
+/** Move `current` toward `target` by no more than `step` radians. */
+export function turnToward(current, target, step) {
   const d = angleDiff(current, target);
-  if (Math.abs(d) <= maxStep) return target;
-  return current + Math.sign(d) * maxStep;
+  if (Math.abs(d) <= step) return target;
+  return current + Math.sign(d) * step;
 }
 
+/** Flat (x,z) distance between two points. */
 export function dist2D(ax, az, bx, bz) {
   const dx = ax - bx;
   const dz = az - bz;
   return Math.sqrt(dx * dx + dz * dz);
 }
 
-/** Pick one entry from a weighted table using the given rng. */
-export function pickWeighted(rng, entries) {
+/** Choose one value from a [{ weight, value }] table using the given rng. */
+export function pickWeighted(rng, table) {
   let total = 0;
-  for (const e of entries) total += e.weight;
+  for (const row of table) total += row.weight;
   let roll = rng() * total;
-  for (const e of entries) {
-    roll -= e.weight;
-    if (roll <= 0) return e.value;
+  for (const row of table) {
+    roll -= row.weight;
+    if (roll <= 0) return row.value;
   }
-  return entries[entries.length - 1].value;
+  return table[table.length - 1].value;
 }
 
-/** Format cash like $1,250. */
+/** Cash as "$1,250". */
 export function fmtCash(n) {
   return '$' + Math.floor(n).toLocaleString('en-US');
 }

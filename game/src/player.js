@@ -1,7 +1,7 @@
 // DUSTLINE player: Jax Marlowe on foot (WASD relative to the camera, sprint,
 // jump, fists) and behind the wheel (WASD drives, E gets in and out). The
 // third-person camera trails behind, swings with the mouse, and pulls back and
-// up when driving so the road ahead stays readable.
+// up while driving so the road ahead stays readable.
 
 import * as THREE from 'three';
 import { PLAYER } from './config.js';
@@ -26,7 +26,7 @@ export class Player {
     this.onGround = true;
     this.health = PLAYER.maxHealth;
     this.armor = 0;
-    this.car = null;           // Car instance when driving, else null
+    this.car = null;           // Car instance while driving, else null
     this.speed = 0;
     this.walkPhase = 0;
     this.camera = null;
@@ -43,7 +43,7 @@ export class Player {
     this.camPitch = clamp(this.camPitch + dy * 0.0024, -0.12, 0.9);
   }
 
-  /** Ground height under (x,z): the bridge deck sits 1.9 m up, the rest is 0. */
+  /** Ground height under (x, z): the bridge deck sits 1.9 m up, the rest is 0. */
   groundHeight(x, z) {
     return x > 300 && x < 360 && Math.abs(z) < 6.5 ? 1.9 : 0;
   }
@@ -79,7 +79,7 @@ export class Player {
       this.group.userData.legR.rotation.x *= 0.8;
     }
     // Jump + gravity, landing on the ground — or on the bridge deck.
-    if ((keys.has('space')) && this.onGround) {
+    if (keys.has('space') && this.onGround) {
       this.vy = PLAYER.jumpSpeed;
       this.onGround = false;
     }
@@ -91,7 +91,7 @@ export class Player {
     } else {
       this.y = groundY;
     }
-    // Buildings are solid; the canyon is not walkable past x = 300 (no bridge on foot? bridge is fine).
+    // Buildings are solid; the world edge is a hard wall.
     const fixed = this.town.resolveCircle(this.x, this.z, PLAYER.radius);
     this.x = fixed.x;
     this.z = fixed.z;
@@ -134,8 +134,8 @@ export class Player {
     let steer = 0;
     if (keys.has('keya') || keys.has('arrowleft')) steer = -1;
     if (keys.has('keyd') || keys.has('arrowright')) steer = 1;
-    // Space is the handbrake.
-    if (keys.has('space')) throttle = throttle >= 0 ? throttle * 0.3 : throttle;
+    // Space is the handbrake: it bleeds speed without reversing.
+    if (keys.has('space') && throttle >= 0) throttle *= 0.3;
     this.car.drive(throttle, steer, dt);
     // Solid buildings stop the car; the canyon gap stops it too.
     const fixed = this.town.resolveCircle(this.car.x, this.car.z, 2.2);
@@ -148,7 +148,7 @@ export class Player {
     }
     this.car.x = clamp(this.car.x, -445, 445);
     this.car.z = clamp(this.car.z, -445, 445);
-    // Keep the car on the bridge deck when crossing the canyon.
+    // Keep the car on the bridge deck while crossing the canyon.
     if (this.car.x > 296 && this.car.x < 364) {
       this.car.z = clamp(this.car.z, -6.5, 6.5);
       this.car.sync();
@@ -167,7 +167,7 @@ export class Player {
     const anchorX = driving ? this.car.x : this.x;
     const anchorZ = driving ? this.car.z : this.z;
     const anchorY = driving ? 1.2 : 1.6 + this.y;
-    // When driving the camera follows the car's heading; on foot it follows the mouse.
+    // While driving the camera follows the car's heading; on foot it follows the mouse.
     const yaw = driving ? this.car.heading : this.camYaw;
     const cx = anchorX - Math.cos(yaw) * dist;
     const cz = anchorZ + Math.sin(yaw) * dist;
@@ -179,6 +179,7 @@ export class Player {
     this.camera.lookAt(anchorX + Math.cos(yaw) * 6, anchorY + 0.4, anchorZ - Math.sin(yaw) * 6);
   }
 
+  /** Damage the player; armor absorbs 60% of each hit. Returns true when dead. */
   damage(amount) {
     let rest = amount;
     if (this.armor > 0) {

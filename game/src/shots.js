@@ -3,10 +3,10 @@
 // raises window.__shotReady once a few frames have rendered, so a headless
 // browser can screenshot exactly what a player would see.
 //
-//   1-cover.jpg  wide golden-hour skyline: highway, downtown, a muscle car, dust
-//   2-gas.jpg    Jax on foot at the gas station, mission beacon overhead
-//   3-chase.jpg  highway chase at 3 stars, two police cars on the tail
-//   4-mission.jpg quarry heist: Jax, crates, guards, pistol out
+//   1-cover.jpg    wide golden-hour skyline: highway, downtown, a muscle car, dust
+//   2-gas.jpg      Jax on foot at the gas station, mission beacon overhead
+//   3-chase.jpg    highway chase at 3 stars, two police cars on the tail
+//   4-mission.jpg  quarry heist: Jax, crates, guards, pistol out
 
 import { makeRng } from './util.js';
 

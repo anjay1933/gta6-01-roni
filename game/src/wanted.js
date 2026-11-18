@@ -89,8 +89,8 @@ export class Wanted {
 
   /**
    * Per-frame update. `player` is { x, z, car|null, speed } and `onBusted` fires
-   * when a cop catches the player on foot at 1 star or rams them to a stop.
-   * Returns nothing; the HUD reads this.stars.
+   * when a cop catches the player on foot, `onRam` when one rams the player's car.
+   * The HUD reads this.stars directly.
    */
   update(dt, player, onBusted, onRam) {
     const targetCops = this.stars === 0 ? 0 : Math.min(1 + this.stars, 5);
@@ -120,7 +120,6 @@ export class Wanted {
       cop.drive(throttle, steer, dt);
       cop.updateSmoke(dt);
       if (d < 4.2) {
-        // Ram: shove the player's car, or bust the player on foot.
         if (player.car) {
           onRam(cop);
         } else if (this.stars >= 1) {

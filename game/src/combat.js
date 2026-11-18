@@ -1,7 +1,7 @@
 // DUSTLINE combat: pistol shooting by raycast, fists at arm's length, drive-by
 // fire from the car window, and health / armor / ammo pickups scattered around
-// town that respawn over time. No hitscan magic — every shot is a ray from the
-// camera through the crosshair, with a tracer and a muzzle flash you can see.
+// town that respawn over time. Every shot is a ray from the camera through the
+// crosshair, with a tracer and a muzzle flash you can see.
 
 import * as THREE from 'three';
 import { PLAYER, PICKUPS } from './config.js';
@@ -45,8 +45,8 @@ export class Combat {
 
   /**
    * Fire the pistol. `origin` is the camera position, `dir` the aim direction,
-   * `targets` an array of Walker-likes with .group/.alive/.damage(). Returns the
-   * Walker hit (or null) and always spends one bullet + one cooldown.
+   * `targets` an array of Walker-likes with .group / .alive / .damage().
+   * Returns the Walker hit (or null). Always spends one bullet + one cooldown.
    */
   shoot(origin, dir, targets) {
     if (this.cooldown > 0 || this.ammo <= 0) return null;
@@ -72,7 +72,9 @@ export class Combat {
     }
     // Tracer: a bright line that fades in a tenth of a second.
     const geo = new THREE.BufferGeometry().setFromPoints([origin.clone(), end]);
-    const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xffe9a8, transparent: true, opacity: 0.95 }));
+    const line = new THREE.Line(geo, new THREE.LineBasicMaterial({
+      color: 0xffe9a8, transparent: true, opacity: 0.95,
+    }));
     this.scene.add(line);
     this.tracers.push({ line, life: 0.12 });
     return hitTarget;
@@ -118,16 +120,15 @@ export class Combat {
   collect(px, pz, state) {
     for (const p of this.pickups) {
       if (p.taken) continue;
-      if (dist2D(px, pz, p.x, p.z) < 2.4) {
-        p.taken = true;
-        p.timer = PICKUPS[p.kind].respawn;
-        p.mesh.visible = false;
-        this.sound.pickup();
-        if (p.kind === 'health') state.health = Math.min(100, state.health + PICKUPS.health.amount);
-        if (p.kind === 'armor') state.armor = Math.min(100, state.armor + PICKUPS.armor.amount);
-        if (p.kind === 'ammo') this.ammo += PICKUPS.ammo.amount;
-        return p.kind;
-      }
+      if (dist2D(px, pz, p.x, p.z) >= 2.4) continue;
+      p.taken = true;
+      p.timer = PICKUPS[p.kind].respawn;
+      p.mesh.visible = false;
+      this.sound.pickup();
+      if (p.kind === 'health') state.health = Math.min(100, state.health + PICKUPS.health.amount);
+      if (p.kind === 'armor') state.armor = Math.min(100, state.armor + PICKUPS.armor.amount);
+      if (p.kind === 'ammo') this.ammo += PICKUPS.ammo.amount;
+      return p.kind;
     }
     return null;
   }

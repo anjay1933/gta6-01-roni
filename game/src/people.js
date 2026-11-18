@@ -1,5 +1,5 @@
-// DUSTLINE people: pedestrians who stroll the sidewalks and panic when trouble
-// starts, foot cops who chase on low wanted levels, and armed rivals for the
+// DUSTLINE people: pedestrians strolling the sidewalks who panic when trouble
+// starts, foot cops who chase at low wanted levels, and armed rivals for the
 // main-street shootout. All low-poly figures, all driven by the same walker.
 
 import * as THREE from 'three';
@@ -8,7 +8,7 @@ import { clamp, dist2D, turnToward } from './util.js';
 const SKINS = [0xc98d68, 0x8a5a3a, 0xe8b88a, 0x6a4028];
 const SHIRTS = [0xd8d0c0, 0x5a7a9a, 0x9a4a3a, 0x4a7a4a, 0x8a6a9a, 0xc0a040];
 
-/** A simple articulated figure: torso, head, hat/helmet, two swinging legs. */
+/** A simple articulated figure: torso, head, hat or cap, two swinging legs. */
 export function makePersonModel(shirtColor, skinColor, opts = {}) {
   const g = new THREE.Group();
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.95, 0.4),
@@ -36,10 +36,9 @@ export function makePersonModel(shirtColor, skinColor, opts = {}) {
   const legGeo = new THREE.BoxGeometry(0.26, 0.85, 0.3);
   const legMat = new THREE.MeshStandardMaterial({ color: opts.pants ?? 0x2a3242, roughness: 0.9 });
   const legL = new THREE.Mesh(legGeo, legMat);
-  legL.position.set(0, 0.42, 0.18);
   legL.geometry = legGeo.clone();
   legL.geometry.translate(0, -0.42, 0);
-  legL.position.y = 0.85;
+  legL.position.set(0, 0.85, 0.18);
   const legR = legL.clone();
   legR.position.z = -0.18;
   g.add(legL);
@@ -108,7 +107,7 @@ export class Walker {
   }
 }
 
-/** The crowd: pedestrians wandering the sidewalks, fleeing from gunfire and cars. */
+/** The crowd: pedestrians wandering the sidewalks, fleeing gunfire and cars. */
 export class Crowd {
   constructor(scene, town, rng) {
     this.scene = scene;
@@ -132,15 +131,14 @@ export class Crowd {
     }
   }
 
-  /** Scare everyone near (x,z): they run away from it for a few seconds. */
+  /** Scare everyone near (x, z): they run away from it for a few seconds. */
   scare(x, z, radius, seconds = 5) {
     for (const p of this.peds) {
       if (!p.alive) continue;
-      if (dist2D(p.x, p.z, x, z) < radius) {
-        p.panic = Math.max(p.panic, seconds);
-        const away = Math.atan2(-(p.z - z), p.x - x);
-        p.wanderTarget = { x: p.x + Math.cos(away) * 40, z: p.z - Math.sin(away) * 40 };
-      }
+      if (dist2D(p.x, p.z, x, z) >= radius) continue;
+      p.panic = Math.max(p.panic, seconds);
+      const away = Math.atan2(-(p.z - z), p.x - x);
+      p.wanderTarget = { x: p.x + Math.cos(away) * 40, z: p.z - Math.sin(away) * 40 };
     }
   }
 
@@ -178,7 +176,7 @@ export class Crowd {
     }
   }
 
-  /** Nearest living ped within range of (x,z). */
+  /** Nearest living ped within range of (x, z). */
   nearest(x, z, range) {
     let best = null;
     let bestD = range;

@@ -51,7 +51,7 @@ export class Hud {
     this.healthFill.style.width = `${clamp01(s.health / 100) * 100}%`;
     this.armorFill.style.width = `${clamp01(s.armor / 100) * 100}%`;
     this.ammoEl.innerHTML = `&#128481; PISTOL <b>${s.ammo}</b> &nbsp;|&nbsp; FISTS READY`;
-    this.speedEl.innerHTML = s.inCar ? `${Math.round(s.speedMph)} <small>MPH</small>` : `ON FOOT`;
+    this.speedEl.innerHTML = s.inCar ? `${Math.round(s.speedMph)} <small>MPH</small>` : 'ON FOOT';
     this.hintEl.textContent = s.hint;
     this.crosshair.style.display = s.inCar ? 'none' : 'block';
     if (this.toastTimer > 0) {
@@ -60,7 +60,7 @@ export class Hud {
     }
   }
 
-  /** Draw the minimap. World is 900 across; the map shows the whole town. */
+  /** Draw the minimap. The world is 900 across; the map shows the whole town. */
   drawMap(px, pz, heading, cops, target, garage, roads) {
     const g = this.mapCtx;
     const W = 190;
@@ -82,7 +82,8 @@ export class Hud {
       g.beginPath();
       road.points.forEach(([x, z], i) => {
         const [mx, mz] = toMap(x, z);
-        if (i === 0) g.moveTo(mx, mz); else g.lineTo(mx, mz);
+        if (i === 0) g.moveTo(mx, mz);
+        else g.lineTo(mx, mz);
       });
       if (road.loop) g.closePath();
       g.stroke();
@@ -90,7 +91,7 @@ export class Hud {
     // Downtown blocks.
     g.fillStyle = '#8a6a4a';
     g.fillRect(95 - 170 * scale, 95 - 230 * scale, 340 * scale, 190 * scale);
-    // Garage (respray) — blue wrench square.
+    // Garage (respray) — blue square.
     const [gx, gz] = toMap(garage.x, garage.z);
     g.fillStyle = '#4fa8ff';
     g.fillRect(gx - 5, gz - 5, 10, 10);

@@ -1,28 +1,29 @@
-// DUSTLINE vehicles: low-poly cars built from boxes and cylinders, a simple arcade
-// driving model (accel, steering, drift, damage smoke), and traffic that follows
-// the road loops, keeps its lane and brakes for the car ahead.
+// DUSTLINE vehicles: low-poly cars from boxes and cylinders, an arcade driving
+// model (throttle, steering, drift, damage smoke), and traffic that follows the
+// road loops, holds its lane and brakes for the car ahead.
 
 import * as THREE from 'three';
 import { CARS } from './config.js';
 import { clamp, angleDiff, dist2D } from './util.js';
 
-function bodyMat(color) {
+function paint(color) {
   return new THREE.MeshStandardMaterial({ color, roughness: 0.35, metalness: 0.55 });
 }
 
-/** Build one low-poly car. Returns { group, wheels[], body } — group faces +X. */
+/** Build one low-poly car. Returns the group, which faces +X. */
 export function makeCarModel(type, colorOverride) {
   const spec = CARS[type] || CARS.sedan;
   const color = colorOverride ?? spec.color;
   const g = new THREE.Group();
   const len = spec.len;
-  const body = new THREE.Mesh(new THREE.BoxGeometry(len, 0.85, 2.0), bodyMat(color));
+  const body = new THREE.Mesh(new THREE.BoxGeometry(len, 0.85, 2.0), paint(color));
   body.position.y = 0.65;
   body.castShadow = true;
   g.add(body);
-  const cabin = new THREE.Mesh(new THREE.BoxGeometry(len * 0.5, 0.7, 1.8), new THREE.MeshStandardMaterial({
-    color: 0x1a2028, roughness: 0.15, metalness: 0.7,
-  }));
+  const cabin = new THREE.Mesh(
+    new THREE.BoxGeometry(len * 0.5, 0.7, 1.8),
+    new THREE.MeshStandardMaterial({ color: 0x1a2028, roughness: 0.15, metalness: 0.7 }),
+  );
   cabin.position.set(-len * 0.06, 1.4, 0);
   cabin.castShadow = true;
   g.add(cabin);
@@ -38,23 +39,29 @@ export function makeCarModel(type, colorOverride) {
     g.add(t);
   }
   if (type === 'police') {
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.22, 1.2),
-      new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.4 }));
+    const bar = new THREE.Mesh(
+      new THREE.BoxGeometry(0.9, 0.22, 1.2),
+      new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.4 }),
+    );
     bar.position.set(-len * 0.06, 1.86, 0);
     g.add(bar);
-    const red = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.18, 0.55),
-      new THREE.MeshStandardMaterial({ color: 0xff2222, emissive: 0xff2222, emissiveIntensity: 2 }));
+    const red = new THREE.Mesh(
+      new THREE.BoxGeometry(0.4, 0.18, 0.55),
+      new THREE.MeshStandardMaterial({ color: 0xff2222, emissive: 0xff2222, emissiveIntensity: 2 }),
+    );
     red.position.set(-len * 0.06, 2.0, -0.3);
     g.add(red);
-    const blue = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.18, 0.55),
-      new THREE.MeshStandardMaterial({ color: 0x2244ff, emissive: 0x2244ff, emissiveIntensity: 2 }));
+    const blue = new THREE.Mesh(
+      new THREE.BoxGeometry(0.4, 0.18, 0.55),
+      new THREE.MeshStandardMaterial({ color: 0x2244ff, emissive: 0x2244ff, emissiveIntensity: 2 }),
+    );
     blue.position.set(-len * 0.06, 2.0, 0.3);
     g.add(blue);
     g.userData.lightRed = red;
     g.userData.lightBlue = blue;
   }
   if (type === 'pickup') {
-    const bed = new THREE.Mesh(new THREE.BoxGeometry(len * 0.34, 0.5, 1.8), bodyMat(0x2a2018));
+    const bed = new THREE.Mesh(new THREE.BoxGeometry(len * 0.34, 0.5, 1.8), paint(0x2a2018));
     bed.position.set(-len * 0.3, 1.15, 0);
     g.add(bed);
   }
@@ -97,26 +104,27 @@ export class Car {
 
   get pos() { return { x: this.x, z: this.z }; }
 
-  /** Arcade drive step. throttle -1..1, steer -1..1 (positive = turn right), dt seconds. */
+  /** Arcade drive step. throttle -1..1, steer -1..1 (positive = turn right). */
   drive(throttle, steer, dt) {
     const s = this.spec;
     const target = throttle * s.top;
     const rate = throttle !== 0 ? s.accel : 10;
     this.speed += clamp(target - this.speed, -rate * dt, rate * dt);
     if (Math.abs(this.speed) < 0.05 && throttle === 0) this.speed = 0;
-    // Steering: forward is (cos h, -sin h), so turning right decreases heading.
+    // Forward is (cos h, -sin h), so turning right decreases heading.
     // Reversing flips the steering, like a real car.
     const dir = this.speed >= 0 ? 1 : -1;
     const authority = clamp(Math.abs(this.speed) / 12, 0, 1);
     this.heading -= steer * s.grip * 0.55 * authority * dir * dt;
-    const drift = Math.abs(steer) > 0.7 && Math.abs(this.speed) > 18 ? 0.35 : 0;
+    const drifting = Math.abs(steer) > 0.7 && Math.abs(this.speed) > 18;
     const fx = Math.cos(this.heading);
     const fz = -Math.sin(this.heading);
     this.x += fx * this.speed * dt;
     this.z += fz * this.speed * dt;
-    if (drift > 0) {
-      this.x += -fz * this.speed * drift * dt * 0.4 * Math.sign(steer);
-      this.z += fx * this.speed * drift * dt * 0.4 * Math.sign(steer);
+    if (drifting) {
+      const slide = 0.35 * 0.4 * Math.sign(steer);
+      this.x += -fz * this.speed * slide * dt;
+      this.z += fx * this.speed * slide * dt;
     }
     this.sync();
   }
@@ -214,10 +222,9 @@ export class Traffic {
       for (const other of [...this.cars, ...(playerCar ? [playerCar] : [])]) {
         if (other === car) continue;
         const od = dist2D(car.x, car.z, other.x, other.z);
-        if (od < 9) {
-          const ahead = Math.cos(car.heading) * (other.x - car.x) + -Math.sin(car.heading) * (other.z - car.z);
-          if (ahead > 0 && od < 9) { throttle = -0.4; break; }
-        }
+        if (od >= 9) continue;
+        const ahead = Math.cos(car.heading) * (other.x - car.x) + -Math.sin(car.heading) * (other.z - car.z);
+        if (ahead > 0) { throttle = -0.4; break; }
       }
       car.drive(throttle, steer, dt);
       car.updateSmoke(dt);
@@ -225,7 +232,7 @@ export class Traffic {
     for (const car of this.parked) car.updateSmoke(dt);
   }
 
-  /** Nearest stealable car within `range` of (x,z); null when none. */
+  /** Nearest stealable car within `range` of (x, z); null when none. */
   nearestParked(x, z, range = 4) {
     let best = null;
     let bestD = range;
