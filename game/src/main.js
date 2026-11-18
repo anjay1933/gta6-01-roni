@@ -445,6 +445,7 @@ export class Game {
     if (!this.player.car) {
       const near = this.traffic.nearestParked(this.player.x, this.player.z, 4.5);
       if (near) hint = `Press E to steal the ${near.spec.label} — the law will notice`;
+      else if (this.wanted.stars > 0) hint = 'Wanted — steal a car (E) and reach the blue SPRAY garage to clear the heat';
     } else if (this.wanted.stars > 0) {
       const g = this.town.garagePos;
       if (dist2D(this.player.x, this.player.z, g.x, g.z) < 20) {

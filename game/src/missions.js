@@ -89,6 +89,9 @@ export class MissionDirector {
     const m = this.current;
     if (!m || !this.active) return '';
     if (m.kind === 'collect') return `Crates ${this.active.collected}/${m.count}`;
+    if (m.kind === 'eliminate' && !this.active.rivalsSpawned) {
+      return 'Close in to trigger the ambush';
+    }
     if (m.kind === 'eliminate' && this.active.rivalsSpawned) {
       return `Rivals down ${this.active.eliminated}/${m.count}`;
     }

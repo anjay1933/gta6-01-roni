@@ -36,6 +36,9 @@ if (existsSync(shotDir)) {
   }
   for (const shot of shots) {
     const size = statSync(join(shotDir, shot)).size;
+    if (size === 0) {
+      throw new Error(`screenshot cap: ${shot} is empty (0 bytes) — re-render it`);
+    }
     if (size > SHOT_MAX_BYTES) {
       throw new Error(`screenshot cap: ${shot} is ${size} bytes, max ${SHOT_MAX_BYTES} (256 KiB)`);
     }

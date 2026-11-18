@@ -34,6 +34,10 @@ No build step, no network requests, no fetched assets: Three.js is vendored unde
 - **R** drive-by while driving · **G** respray at the blue SPRAY garage ($150, clears wanted)
 - **P / Esc** pause · **M** mute
 
+## Tips
+
+- **Wanted?** Steal a car and hit the blue SPRAY garage ($150) to clear your stars — or lay low until the heat cools off.
+
 ## Files
 
 - `game/` — the playable game; open `game/index.html`
