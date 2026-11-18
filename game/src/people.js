@@ -1,121 +1,142 @@
-// FROSTLINE — pedestrians and traffic: townsfolk who stroll, panic, and flee.
-import * as THREE from 'three';
-import { PEDS } from './config.js';
-import { rand, pick, clamp, dist2 } from './util.js';
-import { heightAt, collide } from './world.js';
-import { Car, trafficControl } from './vehicles.js';
+// The island's people: civilians who stroll and flee, observatory guards,
+// jungle rivals and foot cops. Enemies shoot when the player gets close.
+import { ENEMY, T } from './config.js';
+import { moveCircle, tileAt } from './world.js';
+import { clamp, angleTo, dist } from './random.js';
 
-const COATS = [0x3a5a8a, 0x8a3a3a, 0x3a6b4a, 0x6b4a8a, 0x8a6b3a, 0x37424f];
+let pedId = 0;
 
-export class People {
-  constructor(G) {
-    this.G = G;
-    this.peds = [];
-    this.traffic = [];
-    const coatGeo = new THREE.BoxGeometry(0.55, 0.8, 0.32);
-    const headGeo = new THREE.SphereGeometry(0.24, 10, 8);
-    const legGeo = new THREE.BoxGeometry(0.2, 0.6, 0.24);
-    for (const [x, z] of PEDS) {
-      const coat = new THREE.MeshStandardMaterial({ color: pick(COATS), roughness: 0.9 });
-      const skin = new THREE.MeshStandardMaterial({ color: 0xd9a986, roughness: 0.7 });
-      const dark = new THREE.MeshStandardMaterial({ color: 0x22242e, roughness: 0.9 });
-      const g = new THREE.Group();
-      const body = new THREE.Mesh(coatGeo, coat); body.position.y = 1.0; body.castShadow = true;
-      const head = new THREE.Mesh(headGeo, skin); head.position.y = 1.62; head.castShadow = true;
-      const hat = new THREE.Mesh(new THREE.SphereGeometry(0.26, 10, 6, 0, Math.PI * 2, 0, 1.1), dark);
-      hat.position.y = 1.68;
-      const legL = new THREE.Mesh(legGeo, dark); legL.position.set(-0.14, 0.3, 0);
-      const legR = legL.clone(); legR.position.x = 0.14;
-      g.add(body, head, hat, legL, legR);
-      const y = heightAt(x, z);
-      g.position.set(x, y, z);
-      G.scene.add(g);
-      this.peds.push({
-        mesh: g, legL, legR, x, z, y,
-        angle: rand(Math.PI * 2), speed: rand(1.2, 2.2),
-        panic: 0, targetX: x, targetZ: z, retarget: 0,
-      });
+export function makePed(world, x, y, kind) {
+  const hp = kind === 'guard' ? ENEMY.guardHp : kind === 'rival' ? ENEMY.rivalHp : kind === 'cop' ? ENEMY.copHp : 50;
+  return {
+    id: ++pedId,
+    x,
+    y,
+    angle: 0,
+    kind, // 'civilian' | 'guard' | 'rival' | 'cop'
+    hp,
+    maxHp: hp,
+    speed: ENEMY.walkSpeed,
+    shootTimer: Math.random() * 0.5,
+    wanderTimer: 0,
+    tx: x,
+    ty: y,
+    dead: false,
+    fleeing: false,
+    color:
+      kind === 'guard'
+        ? '#c0392b'
+        : kind === 'rival'
+          ? '#8e44ad'
+          : kind === 'cop'
+            ? '#1d4ed8'
+            : ['#e67e22', '#16a085', '#f1c40f', '#ecf0f1', '#e74c3c'][pedId % 5],
+  };
+}
+
+export function spawnCivilians(game, n) {
+  const { world, rng } = game;
+  const town = world.places.town;
+  for (let i = 0; i < n; i++) {
+    const x = town.x + rng.range(-260, 260);
+    const y = town.y + rng.range(-180, 180);
+    if (tileAt(world, x, y) === T.OCEAN) continue;
+    game.peds.push(makePed(world, x, y, 'civilian'));
+  }
+}
+
+function isEnemy(ped) {
+  return ped.kind === 'guard' || ped.kind === 'rival' || ped.kind === 'cop';
+}
+
+export function updatePed(game, ped, dt) {
+  if (ped.dead) return;
+  const { player, world } = game;
+  const d = dist(ped.x, ped.y, player.x, player.y);
+  const hostile = isEnemy(ped) && !player.dead;
+
+  if (hostile && d < ENEMY.shootRange) {
+    // Face the player and shoot.
+    ped.angle = angleTo(ped.x, ped.y, player.x, player.y);
+    ped.shootTimer -= dt;
+    // Close in a little when far, hold ground when near.
+    if (d > 260) {
+      const step = ped.speed * 0.7 * dt;
+      const moved = moveCircle(world, ped.x, ped.y, 12, Math.cos(ped.angle) * step, Math.sin(ped.angle) * step, false);
+      ped.x = moved.x;
+      ped.y = moved.y;
     }
+    if (ped.shootTimer <= 0) {
+      ped.shootTimer = ENEMY.shootCooldown * (0.85 + Math.random() * 0.4);
+      // Wide spread at range: most shots miss a moving target.
+      const spread = (Math.random() - 0.5) * 0.55;
+      game.combat.fireBullet(ped.x, ped.y, ped.angle + spread, ENEMY.bulletSpeed, ENEMY.bulletDamage, ped.kind);
+      game.audio.enemyShoot();
+    }
+    return;
   }
 
-  // Panic: make the peds near (x, z) flee away from it.
-  scare(x, z, radius = 22, strength = 1) {
-    for (const p of this.peds) {
-      const d = dist2(p.x, p.z, x, z);
-      if (d < radius) {
-        p.panic = Math.max(p.panic, strength * (1 - d / radius) * 6);
-        const a = Math.atan2(p.x - x, p.z - z);
-        p.targetX = p.x + Math.sin(a) * 30;
-        p.targetZ = p.z + Math.cos(a) * 30;
-      }
+  if (ped.kind === 'civilian') {
+    // Flee from gunfire and from the player's car.
+    const threat = d < 130 || game.combat.recentShot;
+    if (threat) {
+      ped.fleeing = true;
+      const away = angleTo(player.x, player.y, ped.x, ped.y);
+      const step = ped.speed * 1.25 * dt;
+      const moved = moveCircle(world, ped.x, ped.y, 12, Math.cos(away) * step, Math.sin(away) * step, false);
+      ped.x = moved.x;
+      ped.y = moved.y;
+      ped.angle = away;
+      return;
     }
+    ped.fleeing = false;
+    ped.wanderTimer -= dt;
+    if (ped.wanderTimer <= 0) {
+      ped.wanderTimer = 2 + Math.random() * 3;
+      const a = Math.random() * Math.PI * 2;
+      ped.tx = ped.x + Math.cos(a) * 90;
+      ped.ty = ped.y + Math.sin(a) * 90;
+    }
+    const td = dist(ped.x, ped.y, ped.tx, ped.ty);
+    if (td > 12) {
+      const a = angleTo(ped.x, ped.y, ped.tx, ped.ty);
+      const step = ped.speed * 0.5 * dt;
+      const moved = moveCircle(world, ped.x, ped.y, 12, Math.cos(a) * step, Math.sin(a) * step, false);
+      ped.x = moved.x;
+      ped.y = moved.y;
+      ped.angle = a;
+    }
+    return;
   }
 
-  update(dt, t) {
-    for (const p of this.peds) {
-      p.retarget -= dt;
-      if (p.retarget <= 0) {
-        p.retarget = rand(4, 9);
-        const a = rand(Math.PI * 2), d = rand(8, 26);
-        p.targetX = clamp(p.x + Math.sin(a) * d, -180, 180);
-        p.targetZ = clamp(p.z + Math.cos(a) * d, -140, 160);
-      }
-      const dx = p.targetX - p.x, dz = p.targetZ - p.z;
-      const d = Math.hypot(dx, dz);
-      if (d > 0.5) {
-        const sp = p.panic > 0 ? p.speed * 2.6 : p.speed;
-        p.x += (dx / d) * sp * dt;
-        p.z += (dz / d) * sp * dt;
-        p.angle = Math.atan2(dx, dz);
-      }
-      p.panic = Math.max(0, p.panic - dt);
-      const [cx, cz] = collide(p.x, p.z, 0.5, this.G.world.colliders);
-      p.x = cx; p.z = cz;
-      p.y = heightAt(p.x, p.z);
-      p.mesh.position.set(p.x, p.y, p.z);
-      p.mesh.rotation.y = p.angle;
-      const moving = d > 0.5;
-      const swing = moving ? Math.sin(t * (p.panic > 0 ? 14 : 8)) * 0.5 : 0;
-      p.legL.rotation.x = swing; p.legR.rotation.x = -swing;
-    }
+  // Hostile but player out of range: drift back to a guard post.
+  ped.wanderTimer -= dt;
+  if (ped.wanderTimer <= 0) {
+    ped.wanderTimer = 2.5;
+    const a = Math.random() * Math.PI * 2;
+    ped.tx = clamp(ped.x + Math.cos(a) * 70, 60, 3140);
+    ped.ty = clamp(ped.y + Math.sin(a) * 70, 60, 3140);
   }
-
-  // Traffic cars: spawn from config, drive their loops, avoid each other.
-  spawnTraffic(G, list) {
-    for (const c of list) {
-      if (!c.traffic) continue;
-      const car = new Car(G, c.type, c.x, c.z, c.angle, { traffic: true, driver: 'traffic' });
-      car.wpIndex = Math.floor(rand(0, 4));
-      this.traffic.push(car);
-      G.cars.push(car);
-    }
+  const td = dist(ped.x, ped.y, ped.tx, ped.ty);
+  if (td > 10) {
+    const a = angleTo(ped.x, ped.y, ped.tx, ped.ty);
+    const step = ped.speed * 0.55 * dt;
+    const moved = moveCircle(world, ped.x, ped.y, 12, Math.cos(a) * step, Math.sin(a) * step, false);
+    ped.x = moved.x;
+    ped.y = moved.y;
+    ped.angle = a;
   }
+}
 
-  updateTraffic(dt) {
-    for (const car of this.traffic) {
-      if (car.destroyed || car.driver === 'player') continue; // never fight the player's steering
-      const ctrl = trafficControl(this.G, car, dt);
-      // Cap traffic speed so the town stays readable.
-      car.update(dt, ctrl);
-      if (car.speed > 13) car.speed = 13;
-      if (car.speed < -4) car.speed = -4;
-    }
-    // Car-vs-car shoves (a cheap circle push so traffic never overlaps).
-    const all = this.G.cars;
-    for (let i = 0; i < all.length; i++) {
-      for (let j = i + 1; j < all.length; j++) {
-        const a = all[i], b = all[j];
-        if (a.destroyed || b.destroyed) continue;
-        const dx = b.x - a.x, dz = b.z - a.z;
-        const d2 = dx * dx + dz * dz;
-        if (d2 < 9 && d2 > 0.01) {
-          const d = Math.sqrt(d2), push = (3 - d) / 2;
-          const nx = dx / d, nz = dz / d;
-          a.x -= nx * push; a.z -= nz * push;
-          b.x += nx * push; b.z += nz * push;
-          a.speed *= 0.6; b.speed *= 0.6;
-        }
-      }
-    }
+export function damagePed(game, ped, amount) {
+  if (ped.dead) return;
+  ped.hp -= amount;
+  if (ped.hp <= 0) {
+    ped.hp = 0;
+    ped.dead = true;
+    game.particles.push({ x: ped.x, y: ped.y, vx: 0, vy: -30, life: 0.6, max: 0.6, size: 8, color: '#e74c3c' });
+    if (ped.kind === 'cop') game.wanted.addHeat(40);
+    else if (ped.kind === 'civilian') game.wanted.addHeat(15);
+    else game.wanted.addHeat(8);
   }
 }

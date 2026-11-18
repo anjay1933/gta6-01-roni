@@ -1,78 +1,92 @@
-// FROSTLINE — staged screenshot setups: ?shot=cover|foot|chase|mission&seed=N
-// Each stage places the player, the camera and the world state, then raises
-// window.__shotReady after a few frames so the capture tool knows it is done.
-import { heightAt } from './world.js';
-import { Car } from './vehicles.js';
+// The screenshot scenes behind ?shot=cover|foot|chase|mission. Each one
+// plays the real game forward from a fresh world with the autopilot at the
+// wheel, so the frame is what a short game really looks like — the same
+// seed always gives the same island. If the autopilot dies mid-staging, the
+// scene restarts once with a shorter run, so a screenshot never shows a
+// fail screen.
+import { startMission } from './missions.js';
+import { createAutopilot } from './autopilot.js';
 
-export function applyShot(G, name) {
-  const p = G.player;
-  const aimCam = (yaw, pitch) => { p.camYaw = yaw; p.camPitch = pitch; };
-  const standAt = (x, z, yaw) => {
-    if (p.inCar) p.exitCar();
-    p.pos.set(x, heightAt(x, z), z);
-    p.angle = yaw;
-    aimCam(yaw + Math.PI, 0.3);
-  };
-  const sitIn = (car, yaw) => {
-    if (p.inCar) p.exitCar();
-    p.enterCar(car);
-    car.angle = yaw;
-    car.speed = 0;
-    aimCam(yaw + Math.PI, 0.3);
-  };
-
-  if (name === 'cover') {
-    // Wide dusk shot: the player in the sport coupe on Main Street, the lodge
-    // and the aurora behind.
-    const car = G.cars.find((c) => c.type === 'sport' && !c.destroyed) || G.cars[0];
-    sitIn(car, Math.PI / 2);
-    car.x = 20; car.z = 0;
-    car.mesh.position.set(car.x, heightAt(car.x, car.z), car.z);
-    G.state = 'playing';
-    G.missions.index = 0; G.missions.step = 0; G.missions.active = true;
-    G.missions.updateMarker();
-  } else if (name === 'foot') {
-    // On foot by the lodge, pedestrians and pines around.
-    standAt(52, -48, 2.6);
-    G.state = 'playing';
-    G.missions.index = 0; G.missions.step = 0; G.missions.active = true;
-    G.missions.updateMarker();
-  } else if (name === 'chase') {
-    // Police chase on the pass road: 3 stars, two patrol cars behind.
-    const car = G.cars.find((c) => c.type === 'suv' && !c.destroyed) || G.cars[0];
-    sitIn(car, Math.PI);
-    car.x = 150; car.z = 40; car.speed = 18;
-    car.mesh.position.set(car.x, heightAt(car.x, car.z), car.z);
-    G.wanted.setStars(3);
-    for (let i = 0; i < 2; i++) {
-      const pc = new Car(G, 'police', 150, 40 + 14 + i * 10, Math.PI, { driver: 'police' });
-      pc.speed = 20;
-      G.wanted.police.push(pc);
-      G.cars.push(pc);
-    }
-    G.state = 'playing';
-    G.missions.index = 3; G.missions.step = 0; G.missions.active = true;
-    G.missions.updateMarker();
-  } else if (name === 'mission') {
-    // Mission 3: the snowcat at the lift depot, marker lit. The player stands
-    // north-east of the depot; yaw -2.13 faces the snowcat (facing is
-    // (sin(yaw), cos(yaw))), so the snowcat, the amber beacon and the depot
-    // are all in frame with clear ground behind the camera.
-    G.missions.index = 2; G.missions.step = 0;
-    G.missions.start();
-    standAt(64, -128, -2.13);
-    G.state = 'playing';
+function runPilot(game, seconds) {
+  const pilot = createAutopilot(game);
+  const steps = Math.floor(seconds * 60);
+  for (let i = 0; i < steps; i++) {
+    pilot.update(game, 1 / 60);
+    game.step(1 / 60);
+    game.input.endFrame();
+    if (game.mission && (game.mission.phase === 'done' || game.mission.phase === 'failed')) break;
+    if (game.player.dead) break;
   }
+}
 
-  // Hide the start screen, show the HUD, then signal readiness after 3 frames.
-  document.getElementById('start-screen').style.display = 'none';
-  document.getElementById('hud').style.display = 'block';
-  G.audio.init();
-  let frames = 0;
-  const tick = () => {
-    frames++;
-    if (frames >= 3) { window.__shotReady = true; return; }
-    requestAnimationFrame(tick);
-  };
-  requestAnimationFrame(tick);
+function activate(game, index) {
+  startMission(game, index);
+  game.mission.phase = 'active';
+  game.mission.briefTimer = 0;
+  game.screen = 'play';
+}
+
+function sceneOk(game) {
+  return !game.player.dead && game.mission && game.mission.phase === 'active';
+}
+
+// Run `stage` up to twice; the second attempt plays for fewer seconds.
+function attempt(game, seconds, stage) {
+  for (let n = 0; n < 2; n++) {
+    if (n > 0) game.reset(20261118);
+    stage(game, seconds);
+    if (sceneOk(game)) return;
+    seconds = Math.max(2, seconds / 2);
+  }
+}
+
+export function stageShot(name, game) {
+  game.reset(20261118);
+  game.zoomOverride = 1;
+  if (name === 'foot') {
+    // Two seconds: Rico is just into the observatory fight — crates still
+    // on the ground, guards still shooting. Any longer and he clears the
+    // crates and walks to the exit before the shutter fires.
+    attempt(game, 2, (g, s) => {
+      activate(g, 2);
+      runPilot(g, s);
+    });
+    return { screen: 'play' };
+  }
+  if (name === 'chase') {
+    // Three seconds of the ferry run: Rico is mid-drive on the open road
+    // with the police chasing behind. Any longer and the fixed causeway
+    // lets him reach the ferry before the shutter fires.
+    attempt(game, 3, (g, s) => {
+      activate(g, 3);
+      runPilot(g, s);
+    });
+    return { screen: 'play' };
+  }
+  if (name === 'mission') {
+    attempt(game, 0, (g) => {
+      activate(g, 5);
+      // Drive the eruption job forward until the gold is grabbed and the
+      // lava is spreading, then hold the escape for a few seconds.
+      const pilot = createAutopilot(g);
+      let steps = 0;
+      while (g.mission.stage < 2 && steps < 60 * 150 && sceneOk(g)) {
+        pilot.update(g, 1 / 60);
+        g.step(1 / 60);
+        g.input.endFrame();
+        steps++;
+      }
+      if (sceneOk(g)) runPilot(g, 10);
+    });
+    return { screen: 'play' };
+  }
+  // Cover: the buggy theft, two stars already on Rico, the volcano and the
+  // black-sand coast in frame, police closing in behind.
+  game.zoomOverride = 0.82;
+  attempt(game, 4, (g, s) => {
+    activate(g, 0);
+    runPilot(g, s);
+    if (sceneOk(g)) g.wanted.setStars(2);
+  });
+  return { screen: 'play' };
 }

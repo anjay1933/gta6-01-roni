@@ -1,193 +1,387 @@
-// FROSTLINE — the six story missions: markers, objectives, payoffs, progression.
-import * as THREE from 'three';
-import { MISSIONS, GARAGE } from './config.js';
-import { clamp, dist2 } from './util.js';
-import { heightAt } from './world.js';
-import { Car } from './vehicles.js';
+// Six missions for Rico, the island's getaway driver. Each mission is a
+// small state machine: setup places the player, the cars, the guards and
+// the markers; update watches the objective; target() tells the HUD arrow
+// (and the autopilot) where to go next.
+import { MISSION_REWARDS, T } from './config.js';
+import { makeCar } from './vehicles.js';
+import { makePed } from './people.js';
+import { tileAt, spreadLava } from './world.js';
+import { dist } from './random.js';
+import { healPlayer } from './player.js';
 
-export class Missions {
-  constructor(G) {
-    this.G = G;
-    this.index = 0; // current mission (0-based)
-    this.step = 0;
-    this.done = []; // completed mission ids
-    this.active = false;
-    this.defeated = 0;
-    this.timer = 0;
-    this.pendingStart = 0; // game-time delay before the next mission starts
-    this.snowcat = null;
-    this.marker = null;
-    this.beacon = null;
-    this.buildMarker();
+export const MISSION_DEFS = [
+  {
+    id: 1,
+    title: 'Hot Start',
+    brief: 'Mama Lava needs a driver. Steal the sunset buggy at the port, then lose the heat and reach the hideout.',
+    reward: MISSION_REWARDS[0],
+  },
+  {
+    id: 2,
+    title: 'Black Sand Run',
+    brief: 'A package for the jungle drop. The cops are already on you — two stars. Drive the black-sand road and deliver it.',
+    reward: MISSION_REWARDS[1],
+  },
+  {
+    id: 3,
+    title: 'The Observatory',
+    brief: 'The observatory on the volcano slope holds three crates of Mama Lava\'s stash. Grab them on foot, past the guards, then get out.',
+    reward: MISSION_REWARDS[2],
+  },
+  {
+    id: 4,
+    title: 'Ferry or Die',
+    brief: 'The last ferry leaves in 2:30 and the whole island is looking for you. Three stars. Drive like the lava is behind you.',
+    reward: MISSION_REWARDS[3],
+  },
+  {
+    id: 5,
+    title: 'Jungle Ambush',
+    brief: 'Rivals want the jungle stash. Hold the clearing — eight of them, in two waves. Your pistol does the talking.',
+    reward: MISSION_REWARDS[4],
+  },
+  {
+    id: 6,
+    title: 'The Eruption Job',
+    brief: 'The vault at the crater rim holds the gold. Grab it while the volcano blows — lava is spreading, five stars, and the boat is the only way off.',
+    reward: MISSION_REWARDS[5],
+  },
+];
+
+function clearMissionEntities(game) {
+  game.cars = game.cars.filter((c) => !c.mission && c.driver !== 'police');
+  game.peds = game.peds.filter((p) => !p.mission && p.kind !== 'cop');
+  game.markers = [];
+  game.pickups = [];
+  game.combat.bullets = [];
+}
+
+function putPlayerInCar(game, car) {
+  const p = game.player;
+  p.onFoot = false;
+  p.car = car;
+  car.driver = 'player';
+  p.x = car.x;
+  p.y = car.y;
+}
+
+function ensureCar(game, x, y, kind) {
+  const p = game.player;
+  if (!p.onFoot && p.car && !p.car.wrecked) return p.car;
+  const car = makeCar(game.world, x, y, kind || 'pickup', null, 'Mission ride');
+  car.mission = true;
+  game.cars.push(car);
+  p.onFoot = true;
+  p.car = null;
+  p.x = x - 50;
+  p.y = y + 20;
+  putPlayerInCar(game, car);
+  return car;
+}
+
+function addMarker(game, x, y, r, label, color) {
+  game.markers.push({ x, y, r, label, color: color || '#ffd94a' });
+}
+
+function addPickup(game, x, y, kind, label) {
+  game.pickups.push({ x, y, r: 26, kind, label, taken: false });
+}
+
+export function startMission(game, index) {
+  const def = MISSION_DEFS[index];
+  const { world, player } = game;
+  clearMissionEntities(game);
+  game.wanted.clear();
+  player.dead = false;
+  player.hp = player.maxHp;
+  game.mission = {
+    index,
+    def,
+    phase: 'brief',
+    briefTimer: 3.5,
+    stage: 0,
+    timer: 0,
+    lavaTimer: 0,
+    data: {},
+  };
+  const P = world.places;
+
+  if (index === 0) {
+    player.onFoot = true;
+    player.car = null;
+    player.x = P.port.x - 60;
+    player.y = P.port.y + 40;
+    const buggy = makeCar(world, P.port.x + 60, P.port.y - 10, 'buggy', null, 'Sunset Buggy');
+    buggy.mission = true;
+    game.cars.push(buggy);
+    game.mission.data.car = buggy;
+    addMarker(game, P.hideout.x, P.hideout.y, 70, 'HIDEOUT');
+  } else if (index === 1) {
+    ensureCar(game, P.hideout.x, P.hideout.y, 'pickup');
+    game.wanted.setStars(2);
+    addMarker(game, P.jungleDrop.x, P.jungleDrop.y, 70, 'DROP');
+  } else if (index === 2) {
+    // North of the observatory: the crater's lava is just south of it,
+    // so the player, the guards and the crates all stay on the north side.
+    player.onFoot = true;
+    player.car = null;
+    player.x = P.observatory.x;
+    player.y = P.observatory.y - 220;
+    const guards = [
+      [P.observatory.x - 130, P.observatory.y - 30],
+      [P.observatory.x + 140, P.observatory.y - 20],
+      [P.observatory.x - 150, P.observatory.y + 30],
+      [P.observatory.x + 160, P.observatory.y + 40],
+    ];
+    for (const [gx, gy] of guards) {
+      const g = makePed(world, gx, gy, 'guard');
+      g.mission = true;
+      game.peds.push(g);
+    }
+    addPickup(game, P.observatory.x - 120, P.observatory.y - 40, 'crate', 'STASH');
+    addPickup(game, P.observatory.x + 130, P.observatory.y - 30, 'crate', 'STASH');
+    addPickup(game, P.observatory.x - 40, P.observatory.y - 130, 'crate', 'STASH');
+    // The exit is west, around the lava flows, not straight through them.
+    const exit = { x: P.observatory.x - 300, y: P.observatory.y + 300 };
+    game.mission.data.exit = exit;
+    addMarker(game, exit.x, exit.y, 70, 'EXIT', '#7ee081');
+    game.mission.data.crates = 3;
+  } else if (index === 3) {
+    // The ferry ride starts on the open road south of the volcano, past
+    // the lava flow — not wedged against the vault bunker's corner, where
+    // the car spends the whole timer trying to turn around.
+    ensureCar(game, P.observatory.x, P.observatory.y + 500, 'sedan');
+    game.wanted.setStars(3);
+    game.mission.timer = 150;
+    addMarker(game, P.ferryDock.x, P.ferryDock.y, 70, 'FERRY');
+  } else if (index === 4) {
+    player.onFoot = true;
+    player.car = null;
+    player.x = P.jungleDrop.x;
+    player.y = P.jungleDrop.y;
+    addPickup(game, P.jungleDrop.x + 40, P.jungleDrop.y - 30, 'health', 'MEDKIT');
+    spawnRivalWave(game, 0);
+    game.mission.data.kills = 0;
+    game.mission.data.wave = 1;
+  } else if (index === 5) {
+    // Same open-road start as the ferry run: the buggy is not wedged
+    // against the vault bunker, so the escape actually moves.
+    ensureCar(game, P.observatory.x, P.observatory.y + 500, 'buggy');
+    game.wanted.setStars(5);
+    addMarker(game, P.vault.x, P.vault.y, 120, 'VAULT');
+    // The gold sits at the vault door, on the road — not in the lava.
+    addPickup(game, P.vault.x - 60, P.vault.y, 'gold', 'GOLD');
+  }
+  game.toast(def.title + ' — ' + def.brief);
+}
+
+function spawnRivalWave(game, wave) {
+  const { world } = game;
+  const c = world.places.jungleDrop;
+  const spots = [
+    [c.x - 260, c.y - 160],
+    [c.x + 260, c.y - 140],
+    [c.x - 240, c.y + 180],
+    [c.x + 250, c.y + 170],
+  ];
+  for (const [x, y] of spots) {
+    const r = makePed(world, x, y, 'rival');
+    r.mission = true;
+    r.wave = wave;
+    game.peds.push(r);
+  }
+}
+
+function finishMission(game) {
+  const m = game.mission;
+  game.player.money += m.def.reward;
+  game.audio.missionDone();
+  game.wanted.clear(); // the heat is off while the result shows
+  game.save();
+  if (m.index >= MISSION_DEFS.length - 1) {
+    m.phase = 'complete';
+  } else {
+    m.phase = 'done';
+  }
+}
+
+function failMission(game, reason) {
+  game.mission.phase = 'failed';
+  game.mission.failReason = reason;
+  game.wanted.clear();
+  game.audio.wantedUp();
+}
+
+export function updateMission(game, dt) {
+  const m = game.mission;
+  if (!m || m.phase === 'done' || m.phase === 'failed' || m.phase === 'complete') return;
+  if (m.phase === 'brief') {
+    m.briefTimer -= dt;
+    if (m.briefTimer <= 0) m.phase = 'active';
+    return;
+  }
+  const { player, world } = game;
+  const P = world.places;
+
+  if (player.dead) {
+    failMission(game, 'Rico went down. The island keeps the gold — this time.');
+    return;
   }
 
-  // A tall amber beacon column plus a floating ring at the current objective.
-  buildMarker() {
-    const geo = new THREE.CylinderGeometry(0.7, 0.7, 60, 12, 1, true);
-    const mat = new THREE.MeshBasicMaterial({ color: 0xffc030, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false });
-    this.beacon = new THREE.Mesh(geo, mat);
-    this.beacon.visible = false;
-    this.G.scene.add(this.beacon);
-    const ringGeo = new THREE.TorusGeometry(3, 0.22, 8, 32);
-    const ringMat = new THREE.MeshBasicMaterial({ color: 0xffc030 });
-    this.marker = new THREE.Mesh(ringGeo, ringMat);
-    this.marker.rotation.x = Math.PI / 2;
-    this.marker.visible = false;
-    this.G.scene.add(this.marker);
-  }
-
-  current() { return MISSIONS[this.index] || null; }
-
-  currentStep() {
-    const m = this.current();
-    return m ? m.steps[this.step] : null;
-  }
-
-  start() {
-    const m = this.current();
-    if (!m) return;
-    this.active = true;
-    this.pendingStart = 0;
-    this.step = 0;
-    this.defeated = 0;
-    this.timer = 0;
-    if (m.id === 3) this.spawnSnowcat();
-    if (m.id === 4) this.G.wanted.setStars(3);
-    if (m.id === 5) this.G.combat.spawnRivals(70, -62, 5);
-    if (m.id === 6) { this.timer = 150; this.G.blizzard = true; }
-    this.G.hud.showMission(m);
-    this.G.audio.mission();
-    this.updateMarker();
-  }
-
-  spawnSnowcat() {
-    if (this.snowcat && !this.snowcat.destroyed) return;
-    this.snowcat = new Car(this.G, 'snowcat', 48, -138, 0.4, {});
-    this.G.cars.push(this.snowcat);
-  }
-
-  // A rival went down during the lodge shootout.
-  onRivalDown() {
-    if (this.current()?.id !== 5) return;
-    this.defeated++;
-    const s = this.currentStep();
-    if (s && s.kind === 'defeat') {
-      this.G.hud.flash(`${this.defeated}/${s.count} rivals down`);
-      if (this.defeated >= s.count) this.advanceStep();
+  // Pickups: walk or drive over them.
+  for (const pk of game.pickups) {
+    if (pk.taken) continue;
+    if (dist(player.x, player.y, pk.x, pk.y) < pk.r + 14) {
+      pk.taken = true;
+      game.audio.pickup();
+      if (pk.kind === 'health') {
+        healPlayer(player, 50);
+        game.toast('Medkit +50 HP');
+      } else if (pk.kind === 'gold') {
+        game.toast('GOLD SECURED — run for the boat!');
+      } else {
+        game.toast('Stash grabbed');
+      }
     }
   }
 
-  advanceStep() {
-    const m = this.current();
-    this.step++;
-    this.G.audio.pickup();
-    if (this.step >= m.steps.length) this.completeMission();
-    else this.updateMarker();
-  }
+  const cratesLeft = () => game.pickups.filter((p) => p.kind === 'crate' && !p.taken).length;
 
-  completeMission() {
-    const m = this.current();
-    const G = this.G;
-    G.player.cash += m.pay;
-    this.done.push(m.id);
-    this.active = false;
-    this.marker.visible = false;
-    this.beacon.visible = false;
-    if (m.id === 3 && this.snowcat) { this.snowcat.destroyed = true; this.snowcat.mesh.visible = false; }
-    if (m.id === 5) G.combat.clearRivals();
-    if (m.id === 6) { G.blizzard = false; G.gameComplete(); return; }
-    G.hud.flash(`MISSION COMPLETE — $${m.pay}`);
-    G.audio.mission();
-    G.save();
-    this.index++;
-    const next = this.current();
-    if (next) this.pendingStart = 2.5; // next mission starts on game time, not a wall-clock timer
-  }
-
-  updateMarker() {
-    const s = this.currentStep();
-    if (!s) { this.marker.visible = false; this.beacon.visible = false; return; }
-    const y = heightAt(s.at[0], s.at[1]);
-    this.marker.position.set(s.at[0], y + 1.2, s.at[1]);
-    this.beacon.position.set(s.at[0], y + 30, s.at[1]);
-    this.marker.visible = true;
-    this.beacon.visible = true;
-  }
-
-  objectiveText() {
-    const m = this.current();
-    if (!m) return 'All missions complete — free roam Frostline Pass.';
-    const s = this.currentStep();
-    if (!s) return m.title;
-    let text = `${m.id}. ${m.title} — ${s.text}`;
-    if (s.kind === 'defeat') text = `${m.id}. ${m.title} — Clear out the rivals at the lodge (${this.defeated}/${s.count})`;
-    if (s.kind === 'timed') text = `${m.id}. ${m.title} — Reach the South Gate — ${Math.ceil(this.timer)}s left`;
-    return text;
-  }
-
-  objectiveDistance() {
-    const s = this.currentStep();
-    if (!s) return 0;
-    const p = this.G.player;
-    const px = p.inCar ? p.inCar.x : p.x, pz = p.inCar ? p.inCar.z : p.z;
-    return Math.round(dist2(px, pz, s.at[0], s.at[1]));
-  }
-
-  objectivePoint() {
-    const s = this.currentStep();
-    return s ? s.at : null;
-  }
-
-  update(dt) {
-    // Chain to the next mission on game time (robust to slow frames / throttled timers).
-    if (this.pendingStart > 0) {
-      this.pendingStart -= dt;
-      if (this.pendingStart <= 0) {
-        this.pendingStart = 0;
-        if (this.index < MISSIONS.length) this.start();
+  if (m.index === 0) {
+    if (m.stage === 0) {
+      if (!player.onFoot && player.car) {
+        m.stage = 1;
+        game.wanted.addHeat(25);
+        game.audio.wantedUp();
+        game.toast('1 STAR — the cops saw the theft. Reach the hideout!');
       }
+    } else if (dist(player.x, player.y, P.hideout.x, P.hideout.y) < 70) {
+      finishMission(game);
+    }
+  } else if (m.index === 1) {
+    if (dist(player.x, player.y, P.jungleDrop.x, P.jungleDrop.y) < 70) finishMission(game);
+  } else if (m.index === 2) {
+    if (m.stage === 0) {
+      if (cratesLeft() === 0) {
+        m.stage = 1;
+        game.toast('All three crates — now get to the EXIT!');
+      }
+    } else if (dist(player.x, player.y, m.data.exit.x, m.data.exit.y) < 70) {
+      finishMission(game);
+    }
+  } else if (m.index === 3) {
+    m.timer -= dt;
+    if (m.timer <= 0) {
+      failMission(game, 'The ferry left without you. 2:30 is 2:30.');
       return;
     }
-    if (!this.active) return;
-    const m = this.current();
-    const s = this.currentStep();
-    if (!s) return;
-    const p = this.G.player;
-    const px = p.inCar ? p.inCar.x : p.x, pz = p.inCar ? p.inCar.z : p.z;
-    const d = dist2(px, pz, s.at[0], s.at[1]);
-    if (s.kind === 'timed') {
-      this.timer -= dt;
-      if (this.timer <= 0) {
-        this.G.hud.flash('Too slow — the whiteout closed the pass. Try again.');
-        this.timer = s.seconds;
-        // Reset the player to the lodge start of the escape.
-        if (p.inCar) { p.inCar.x = 70; p.inCar.z = -90; p.inCar.speed = 0; }
-        p.pos.set(70, heightAt(70, -90), -90);
-        return;
+    if (dist(player.x, player.y, P.ferryDock.x, P.ferryDock.y) < 70) finishMission(game);
+  } else if (m.index === 4) {
+    const alive = game.peds.filter((p) => p.kind === 'rival' && !p.dead).length;
+    if (m.data.wave === 1 && alive === 0) {
+      m.data.wave = 2;
+      game.toast('Wave 2 — four more rivals in the trees!');
+      spawnRivalWave(game, 1);
+    } else if (m.data.wave === 2 && alive === 0) {
+      finishMission(game);
+    }
+  } else if (m.index === 5) {
+    if (m.stage === 0) {
+      // 120px, not 60: the vault bunker blocks the road tiles beside it,
+      // so the closest a car can stop is ~108px out. The gold is a short
+      // walk from there.
+      if (dist(player.x, player.y, P.vault.x, P.vault.y) < 120) {
+        m.stage = 1;
+        game.toast('On foot — grab the GOLD at the vault!');
       }
-      // Reaching the gate in time completes the escape.
-      if (d < s.radius) { this.advanceStep(); return; }
-    }
-    if (s.kind === 'pickup' && d < s.radius) {
-      // Mission 3 pickup means stealing the snowcat: the player must be in it.
-      if (m.id === 3) {
-        if (p.inCar === this.snowcat) this.advanceStep();
-        else this.G.hud.flash('Get in the snowcat (E)');
-      } else this.advanceStep();
-      return;
-    }
-    if ((s.kind === 'goto' || s.kind === 'deliver') && d < s.radius) {
-      // Missions 2 and 3 deliveries want the player in a car.
-      if ((m.id === 2 || m.id === 3) && s.kind === 'deliver' && !p.inCar) {
-        this.G.hud.flash('Bring the car in to deliver');
-        return;
+    } else if (m.stage === 1) {
+      const gold = game.pickups.find((p) => p.kind === 'gold');
+      if (gold && gold.taken) {
+        m.stage = 2;
+        game.markers = [];
+        addMarker(game, P.boat.x, P.boat.y, 70, 'BOAT', '#7ee081');
+        game.toast('THE VOLCANO IS BLOWING — get to the boat!');
       }
-      this.advanceStep();
-      return;
+    } else if (m.stage === 2) {
+      m.lavaTimer += dt;
+      if (m.lavaTimer > 6) {
+        m.lavaTimer = 0;
+        spreadLava(world, game.rng, 3);
+      }
+      if (dist(player.x, player.y, P.boat.x, P.boat.y) < 70) finishMission(game);
     }
-    // Marker pulse.
-    const t = performance.now() / 500;
-    this.marker.position.y = heightAt(s.at[0], s.at[1]) + 1.2 + Math.sin(t) * 0.4;
-    this.marker.rotation.z += dt * 0.8;
   }
+}
+
+// Where the HUD arrow (and the autopilot) should point right now.
+export function missionTarget(game) {
+  const m = game.mission;
+  if (!m || m.phase !== 'active') return null;
+  const { player, world } = game;
+  const P = world.places;
+  if (m.index === 0) {
+    if (m.stage === 0) {
+      const car = m.data.car;
+      return { x: car.x, y: car.y, needCar: true, shoot: false, label: 'Steal the buggy' };
+    }
+    return { x: P.hideout.x, y: P.hideout.y, needCar: true, shoot: false, label: 'Hideout' };
+  }
+  if (m.index === 1) return { x: P.jungleDrop.x, y: P.jungleDrop.y, needCar: true, shoot: false, label: 'Jungle drop' };
+  if (m.index === 2) {
+    if (m.stage === 0) {
+      const left = game.pickups.filter((p) => p.kind === 'crate' && !p.taken);
+      if (left.length > 0) {
+        let best = left[0];
+        for (const pk of left) if (dist(player.x, player.y, pk.x, pk.y) < dist(player.x, player.y, best.x, best.y)) best = pk;
+        return { x: best.x, y: best.y, needCar: false, shoot: true, label: 'Stash crate' };
+      }
+    }
+    return { x: m.data.exit.x, y: m.data.exit.y, needCar: false, shoot: true, label: 'Exit' };
+  }
+  if (m.index === 3) return { x: P.ferryDock.x, y: P.ferryDock.y, needCar: true, shoot: false, label: 'Ferry dock' };
+  if (m.index === 4) {
+    const alive = game.peds.filter((p) => p.kind === 'rival' && !p.dead);
+    if (alive.length > 0) {
+      let best = alive[0];
+      for (const p of alive) if (dist(player.x, player.y, p.x, p.y) < dist(player.x, player.y, best.x, best.y)) best = p;
+      return { x: best.x, y: best.y, needCar: false, shoot: true, label: 'Rival' };
+    }
+    return null;
+  }
+  if (m.index === 5) {
+    if (m.stage === 0) return { x: P.vault.x, y: P.vault.y, needCar: true, shoot: false, label: 'Vault' };
+    if (m.stage === 1) {
+      const gold = game.pickups.find((p) => p.kind === 'gold');
+      return { x: gold.x, y: gold.y, needCar: false, shoot: false, label: 'Gold' };
+    }
+    return { x: P.boat.x, y: P.boat.y, needCar: true, shoot: false, label: 'Boat' };
+  }
+  return null;
+}
+
+export function missionObjectiveText(game) {
+  const m = game.mission;
+  if (!m) return '';
+  if (m.phase === 'brief') return m.def.title + ' — ' + m.def.brief;
+  if (m.phase === 'done') return 'MISSION COMPLETE — ' + m.def.title + '  +' + '$' + m.def.reward;
+  if (m.phase === 'failed') return 'MISSION FAILED — ' + (m.failReason || '');
+  if (m.phase === 'complete') return 'EMBER ISLE COMPLETE — Rico got away with the gold.';
+  const t = missionTarget(game);
+  if (m.index === 0) return m.stage === 0 ? 'Steal the sunset buggy  [E]' : 'Drive to the HIDEOUT';
+  if (m.index === 1) return 'Deliver the package to the JUNGLE DROP';
+  if (m.index === 2) {
+    const left = game.pickups.filter((p) => p.kind === 'crate' && !p.taken).length;
+    return m.stage === 0 ? 'Grab the stash crates  (' + (3 - left) + '/3)' : 'Get to the EXIT';
+  }
+  if (m.index === 3) return 'Reach the FERRY DOCK before it leaves';
+  if (m.index === 4) {
+    const alive = game.peds.filter((p) => p.kind === 'rival' && !p.dead).length;
+    return 'Defend the stash — rivals left: ' + alive;
+  }
+  if (m.index === 5) {
+    if (m.stage === 0) return 'Drive to the VAULT at the crater rim';
+    if (m.stage === 1) return 'On foot — grab the GOLD  [E to exit car]';
+    return 'ESCAPE — reach the BOAT at the dock!';
+  }
+  return t ? t.label : '';
 }

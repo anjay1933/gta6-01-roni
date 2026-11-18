@@ -1,48 +1,88 @@
-# gta6-01-roni
+# EMBER ISLE — Make GTA 6
 
-[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
-[![rank](https://make.fun/badge/gta6-01/anjay1933/gta6-01-roni/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
-[![reward](https://make.fun/badge/gta6-01/anjay1933/gta6-01-roni/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![make.fun — Make GTA 6](https://img.shields.io/badge/make.fun-gta6--01-orange)](https://make.fun/bounty/gta6-01)
+[![Prize — $1,666 USDC](https://img.shields.io/badge/prize-%241%2C666%20USDC-green)](https://make.fun/bounty/gta6-01)
+[![Entry — @roni-rockabilly](https://img.shields.io/badge/entry-roni--rockabilly-blue)](https://make.fun/bounty/gta6-01)
 
-Built for make.fun's [Make GTA 6](https://make.fun/bounty/gta6-01) bounty — $1,666 in USDC.
+A GTA-style open-world crime game on a **volcanic tropical island**, built for the
+[Make GTA 6 bounty on make.fun](https://make.fun/bounty/gta6-01) ($1,666, ends 24 Nov 2026).
 
-# FROSTLINE — a 3D open-world crime game
+## The island
 
-A third-person open-world action game that runs in the browser. You play Mara Voss, getaway driver for the Whiteout Crew, working Frostline Pass — a remote snowy alpine resort town at dusk, aurora overhead, a frozen lake, pine forests, a ski lodge and a chairlift. Steal cars, outrun the ski patrol, and run six story missions from the lodge to the south gate.
+Ember Isle is not another coastal city. An active volcano crowns the north, lava
+flows run down its slopes, the beaches are black sand, the jungle is thick, and
+one small port town — Port Ember — is the only place with streetlights. You play
+**Rico**, getaway driver for Mama Lava's smuggling crew.
 
-## Run it
+## What is in the game
 
-Open `game/index.html` in a desktop browser (or serve the `game/` folder with any static file server: `node serve.ts` → http://localhost:8080).
-
-No build step, no network requests, no fetched assets: Three.js is vendored under `game/vendor/`, the town and textures are generated in code, and the sounds are synthesized with WebAudio.
-
-## The game
-
-- **Open world:** a procedural alpine resort town — a main street of shops and a diner, the Frostline Lodge, seven cabins, a chairlift climbing the north slope, a frozen lake with an ice-fishing hut, pine forests, and an icy mountain pass road to the south gate. Dusk light, aurora ribbons, drifting snow.
-- **On foot + driving:** third-person on foot (run, jump) and five car types to steal and drive, with arcade handling that slides on ice, damage and smoke.
-- **Traffic + pedestrians:** AI cars follow the town roads, pedestrians stroll the sidewalks and flee when shots are fired.
-- **Wanted 1–5 stars:** car theft, hitting pedestrians and shooting raise your stars; patrol SUVs chase and ram, roadblocks go up at 3+ stars. Lay low to cool off, or clear stars at the Snowline Garage ($150 respray).
-- **6 story missions:** First Pickup, Powder Run, Lift House Heist, Hot Getaway, Lodge Shootout, Whiteout Escape — with objective markers, cash rewards and progression. The final mission runs on a 150-second timer in a blizzard.
-- **Combat:** pistol with tracers and aim assist, drive-by shooting from a car, fists, health/armor/ammo pickups, armed rivals in the lodge shootout.
-- **HUD + minimap:** cash, health/armor, ammo, wanted stars, speed, objective + distance, and a live 2D minimap with roads, the frozen lake, mission marker and police blips.
-- **Save:** progress (cash, missions, health/armor/ammo) persists in localStorage; start screen, pause menu, busted/wasted and game-complete screens.
+- **Open world, on foot and by car** — steal parked cars, drive the island's road
+  network (or cut across the jungle and the beach), with traffic cruising the roads
+  and civilians who flee from gunfire.
+- **6 story missions** — steal the sunset buggy, run a package to the jungle drop,
+  raid the volcano observatory on foot, beat the last ferry's 2:30 deadline, hold
+  the jungle stash against two rival waves, and finally grab the crater gold while
+  the volcano erupts and the lava spreads — then escape by boat.
+- **Wanted system, 1–5 stars** — crimes raise the heat; police cruisers chase and
+  ram, foot cops join from 2 stars, and the heat cools off if you stay quiet.
+- **Combat** — mouse-aim pistol, guards and rivals who shoot back, wreckable cars
+  that explode, lava that burns on foot and wrecks cars.
+- **HUD + minimap** — health, cash, wanted stars, objective banner, mission timer,
+  off-screen objective arrow, and a live minimap with police, rival and objective blips.
+- **Save** — progress and cash save automatically after every mission; the title
+  screen continues from the highest unlocked mission.
+- **Sound** — everything is synthesized with WebAudio (engine hum, sirens,
+  gunshots, explosions). No audio files, no network requests.
+- **Screenshots** — `?shot=cover|foot|chase|mission` stages a real played scene
+  from a fixed seed, so the four screenshots are honest frames of the game.
 
 ## Controls
 
-- **W A S D** move / drive · **Mouse** look/aim (click to lock) · **Shift** sprint · **Space** jump / handbrake
-- **E** enter/exit car · **Click** shoot · **F** punch
-- **R** drive-by while driving · **G** respray at the garage ($150, clears wanted)
-- **P / Esc** pause · **M** mute
+| Key | Action |
+| --- | --- |
+| WASD / arrows | Move on foot, drive |
+| Mouse + click | Aim, shoot |
+| E | Enter / exit car |
+| Space | Handbrake |
+| P | Pause |
+| R | Restart mission |
+| M | Mute |
 
-## Tips
+## Play it
 
-- **Wanted?** Drive into the Snowline Garage and press **G** ($150) to clear your stars — or lay low until the heat cools off.
-- **Ice is slick:** the frozen lake and snowy ground slide — brake early, steer gently, and use the handbrake to swing around.
+```sh
+node serve.ts
+# open http://localhost:8080
+```
 
-## Files
+## Hand it in
 
-- `game/` — the playable game; open `game/index.html`
-- `game/src/` — game code (config, world, player, vehicles, people, wanted, combat, missions, HUD, audio, shots)
-- `game/vendor/` — vendored Three.js, works fully offline
-- `screenshots/` — staged renders of the game
-- `main.ts` — builds the submission dossier
+```sh
+mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+```
+
+`main.ts` copies `game/` and `screenshots/` to the output directory and writes
+`dossier.json` with the vendored make.fun library (`vendor/makefun-game.ts`).
+
+## Source layout
+
+| File | Job |
+| --- | --- |
+| `game/src/main.js` | Boot, game loop, screens, saving |
+| `game/src/config.js` | Every tunable number |
+| `game/src/world.js` | Island generation, roads, lava, collision |
+| `game/src/player.js` | Rico on foot |
+| `game/src/vehicles.js` | Cars: player, traffic, police |
+| `game/src/people.js` | Civilians, guards, rivals, cops |
+| `game/src/combat.js` | Bullets, explosions, particles |
+| `game/src/wanted.js` | Heat, stars, police response |
+| `game/src/missions.js` | The six missions |
+| `game/src/hud.js` | HUD + minimap |
+| `game/src/render.js` | All drawing + screens |
+| `game/src/autopilot.js` | Plays the game (verify run + shot scenes) |
+| `game/src/shots.js` | The four screenshot scenes |
+| `game/src/input.js` | Keyboard/mouse, incl. virtual keys |
+| `game/src/audio.js` | Synthesized WebAudio sound |
+| `game/src/random.js` | Seeded RNG + helpers |
+
+All characters, places, story, art and sound are original — nothing from Rockstar Games.

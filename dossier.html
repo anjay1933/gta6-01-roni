@@ -1,94 +1,35 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FROSTLINE — dossier</title>
+<title>EMBER ISLE — dossier</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #0a0e1c; color: #eef2fa; font-family: 'Segoe UI', system-ui, sans-serif; line-height: 1.6; }
-  .wrap { max-width: 980px; margin: 0 auto; padding: 32px 20px 60px; }
-  h1 { font-size: 52px; letter-spacing: 10px; color: #bfe8ff; text-shadow: 0 0 20px rgba(90, 200, 255, 0.6); }
-  h2 { font-size: 22px; color: #7fd4ff; margin: 34px 0 12px; letter-spacing: 2px; }
-  p { color: #dfe6f5; max-width: 760px; }
-  .sub { color: #ffd75e; letter-spacing: 3px; font-size: 14px; margin-top: 4px; }
-  .status { margin-top: 18px; padding: 14px 18px; background: rgba(127, 212, 255, 0.08); border: 1px solid #7fd4ff; border-radius: 8px; }
-  .status b { color: #7fd4ff; }
-  .shots { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
-  .shots figure { background: #11162c; border-radius: 8px; overflow: hidden; }
-  .shots img { width: 100%; display: block; }
-  .shots figcaption { padding: 10px 12px; font-size: 13px; color: #aab6d0; }
-  .shots figure:first-child { grid-column: 1 / -1; }
-  table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid #26304a; font-size: 15px; }
-  th { color: #ffd75e; letter-spacing: 1px; font-size: 13px; }
-  td.pay { color: #7de08a; font-weight: bold; white-space: nowrap; }
-  .keys { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px 22px; margin-top: 10px; max-width: 760px; }
-  .keys div { font-size: 15px; color: #dfe6f5; }
-  .keys b { color: #bfe8ff; }
-  a { color: #7fd4ff; }
-  .foot { margin-top: 36px; color: #8a93a8; font-size: 13px; }
+  body { font-family: system-ui, sans-serif; background: #0b0e13; color: #eee; margin: 0; padding: 24px; }
+  a { color: #ffd94a; }
+  img { max-width: 100%; display: block; margin: 12px 0; border: 1px solid #333; }
+  pre { background: #11141b; padding: 16px; overflow: auto; font-size: 12px; white-space: pre-wrap; }
+  h1 { color: #ff6a1a; }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>FROSTLINE</h1>
-  <div class="sub">AN OPEN-WORLD CRIME GAME &middot; FROSTLINE PASS &middot; MAKE GTA 6 (GTA6-01)</div>
-  <p style="margin-top:16px">You are Mara Voss, getaway driver for the Whiteout Crew. Frostline Pass is snowed in,
-  the aurora is out, and the ski patrol watches every road. Run six jobs for Vera — from a quiet
-  pickup at the lodge to a whiteout escape down the mountain — steal what you need, outrun the law,
-  and get paid.</p>
-
-  <div class="status">
-    <b>Submission status:</b> Round 3 entry for @roni-rockabilly — re-authored in a fresh recorded session.
-    Competition gta6-01, $1,666 in USDC, entries close 24 Nov 2026 22:00 WIB, results 10 Dec 2026.
-    Playable now: open <a href="game/index.html">game/index.html</a> in a desktop browser.
-  </div>
-
-  <h2>SCREENSHOTS</h2>
-  <div class="shots">
-    <figure><img src="screenshots/1-cover.jpg" alt="Frostline Pass at dusk — cover"><figcaption>Cover — Frostline Pass at dusk: Main Street, the lodge, and the aurora.</figcaption></figure>
-    <figure><img src="screenshots/2-foot.jpg" alt="On foot by the lodge"><figcaption>On foot by the lodge — pedestrians, pines, and the chairlift.</figcaption></figure>
-    <figure><img src="screenshots/3-chase.jpg" alt="Police chase on the pass road"><figcaption>Police chase on the pass road — 3 stars, two patrol SUVs behind.</figcaption></figure>
-    <figure><img src="screenshots/4-mission.jpg" alt="Lift House Heist"><figcaption>Mission 3 — Lift House Heist: the snowcat at the depot, beacon lit.</figcaption></figure>
-  </div>
-
-  <h2>MISSIONS</h2>
-  <table>
-    <tr><th>#</th><th>Mission</th><th>What happens</th><th>Pay</th></tr>
-    <tr><td>1</td><td>First Pickup</td><td>Collect a package at the Frostline Lodge, deliver it to the Pine Diner.</td><td class="pay">$250</td></tr>
-    <tr><td>2</td><td>Powder Run</td><td>Drive across the frozen lake to the ice-fishing hut and back to the garage — patrols watch the lake.</td><td class="pay">$400</td></tr>
-    <tr><td>3</td><td>Lift House Heist</td><td>Steal the snowcat at the lift depot and bring it down to the garage.</td><td class="pay">$600</td></tr>
-    <tr><td>4</td><td>Hot Getaway</td><td>Three stars on you. Lose the patrols and reach the hideout cabin south of town.</td><td class="pay">$800</td></tr>
-    <tr><td>5</td><td>Lodge Shootout</td><td>Rivals hit the lodge. Clear out five armed rivals, then check on Vera.</td><td class="pay">$1,000</td></tr>
-    <tr><td>6</td><td>Whiteout Escape</td><td>Blizzard on the pass road. Reach the South Gate in 150 seconds. Do not stop.</td><td class="pay">$1,500</td></tr>
-  </table>
-
-  <h2>HOW TO PLAY</h2>
-  <div class="keys">
-    <div><b>W A S D</b> — move / drive</div>
-    <div><b>Mouse</b> — look / aim (click to lock)</div>
-    <div><b>Shift</b> — sprint</div>
-    <div><b>Space</b> — jump / handbrake</div>
-    <div><b>E</b> — enter / exit car</div>
-    <div><b>Click</b> — shoot &nbsp;·&nbsp; <b>F</b> — punch</div>
-    <div><b>R</b> — drive-by while driving</div>
-    <div><b>G</b> — respray at the garage ($150, clears wanted)</div>
-    <div><b>P / Esc</b> — pause &nbsp;·&nbsp; <b>M</b> — mute</div>
-  </div>
-  <p style="margin-top:14px">Stealing a car, hitting a pedestrian, or firing near patrols raises your wanted level (1–5 stars).
-  Lay low until the heat cools, or pay $150 at the Snowline Garage. Ice is slick — brake early on the lake.
-  Progress (cash, missions, health, armor, ammo) saves automatically.</p>
-
-  <h2>WHAT'S IN THE WORLD</h2>
-  <p>Main Street shops and a diner, the Frostline Lodge, seven cabins, a working chairlift, a frozen lake with
-  an ice-fishing hut, pine forests, an icy mountain pass road, traffic cars and strolling pedestrians,
-  patrol SUVs with roadblocks, health / armor / ammo pickups, a live minimap, and fully synthesized
-  WebAudio (engine, wind, sirens, gunshots, music). No network requests — Three.js is vendored and
-  everything else is generated in code.</p>
-
-  <p class="foot">FROSTLINE is an original game. No names, characters, art, music or maps from any commercial game.
-  Built for make.fun competition gta6-01 — <a href="https://make.fun/bounty/gta6-01">make.fun/bounty/gta6-01</a>.</p>
-</div>
+<h1>EMBER ISLE — dossier</h1>
+<p>Entry for <a href="https://make.fun/bounty/gta6-01">Make GTA 6 (gta6-01)</a> by @roni-rockabilly.
+Run <code>mkdir -p out &amp;&amp; MAKEFUN_OUTPUT_DIR=out node main.ts</code> to build
+<code>out/dossier.json</code>, then open this page beside it.</p>
+<div id="shots"></div>
+<pre id="dossier">dossier.json not built yet.</pre>
+<script>
+fetch('out/dossier.json').then(r => r.json()).then(d => {
+  document.getElementById('dossier').textContent = d.text || JSON.stringify(d, null, 2);
+  const shots = document.getElementById('shots');
+  (d.images || []).forEach((img, i) => {
+    const el = document.createElement('img');
+    el.src = 'data:image/jpeg;base64,' + img.data;
+    el.alt = 'screenshot ' + (i + 1);
+    shots.appendChild(el);
+  });
+}).catch(() => {});
+</script>
 </body>
 </html>

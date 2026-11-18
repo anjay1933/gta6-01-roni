@@ -1,133 +1,195 @@
-// FROSTLINE — HUD: cash, objective, wanted stars, health/armor, ammo, speed, minimap.
-import { ROADS, BUILDINGS, LAKE } from './config.js';
+// The HUD: health, cash, wanted stars, objective banner, mission timer,
+// toasts, context prompts and the minimap in the corner.
+import { TILE, WORLD_W, WORLD_H, T, TILE_COLORS } from './config.js';
+import { formatMoney, formatTime, clamp } from './random.js';
+import { missionObjectiveText, missionTarget } from './missions.js';
 
-// Minimap geometry: the 700 m-wide world (-350..350) fits a 168 px square.
-const MAP_PX = 168;
-const MAP_SPAN = 700;
+const MAP_SIZE = 168;
 
-export class HUD {
-  constructor(G) {
-    this.G = G;
-    this.flashTimer = 0;
-    // Grab every HUD node once; the ids are fixed by index.html.
-    const $ = (id) => document.getElementById(id);
-    this.el = {
-      cash: $('hud-cash'), objective: $('hud-objective'), distance: $('hud-distance'),
-      stars: $('hud-stars'), health: $('hud-health'), armor: $('hud-armor'),
-      ammo: $('hud-ammo'), speed: $('hud-speed'), flash: $('hud-flash'),
-      minimap: $('minimap'), missionCard: $('mission-card'),
-      missionTitle: $('mission-title'), missionText: $('mission-text'),
-    };
-    this.mapCtx = this.el.minimap.getContext('2d');
-  }
-
-  // World (x, z) -> minimap (px, py).
-  project(x, z) {
-    return [(x + 350) / MAP_SPAN * MAP_PX, (z + 350) / MAP_SPAN * MAP_PX];
-  }
-
-  update(dt) {
-    const G = this.G, p = G.player;
-    this.el.cash.textContent = `$${p.cash}`;
-    this.el.objective.textContent = G.missions.objectiveText();
-    const d = G.missions.objectiveDistance();
-    this.el.distance.textContent = G.missions.active ? `${d} m` : '';
-    const filled = '★'.repeat(G.wanted.stars), empty = '☆'.repeat(5 - G.wanted.stars);
-    this.el.stars.textContent = filled + empty;
-    this.el.stars.style.color = G.wanted.stars > 0 ? '#ff5040' : '#8a93a8';
-    this.el.health.style.width = `${Math.max(0, p.health)}%`;
-    this.el.armor.style.width = `${Math.max(0, p.armor)}%`;
-    this.el.ammo.textContent = p.inCar ? 'DRIVE-BY [R]' : `AMMO ${p.ammo}`;
-    const kmh = p.inCar ? Math.abs(p.inCar.speed) * 3.6 : 0;
-    this.el.speed.textContent = `${Math.round(kmh)} km/h`;
-    if (this.flashTimer > 0) {
-      this.flashTimer -= dt;
-      if (this.flashTimer <= 0) this.el.flash.style.opacity = '0';
+export function buildMinimap(world) {
+  const c = document.createElement('canvas');
+  c.width = MAP_SIZE;
+  c.height = MAP_SIZE;
+  const g = c.getContext('2d');
+  const scale = MAP_SIZE / WORLD_W;
+  for (let ty = 0; ty < 80; ty++) {
+    for (let tx = 0; tx < 80; tx++) {
+      const t = world.tiles[ty * 80 + tx];
+      g.fillStyle = TILE_COLORS[t] || '#000';
+      g.fillRect(tx * TILE * scale, ty * TILE * scale, TILE * scale + 0.5, TILE * scale + 0.5);
     }
-    this.drawMinimap();
+  }
+  // Volcano crater dot.
+  g.fillStyle = '#ff5a1f';
+  g.beginPath();
+  g.arc(world.places.volcano.x * scale, world.places.volcano.y * scale, 4, 0, Math.PI * 2);
+  g.fill();
+  return c;
+}
+
+function drawStars(ctx, stars, x, y) {
+  ctx.font = '26px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  for (let i = 0; i < 5; i++) {
+    ctx.fillStyle = i < stars ? '#ffd94a' : 'rgba(255,255,255,0.25)';
+    ctx.fillText('★', x + i * 26, y);
+  }
+}
+
+export function drawHUD(ctx, game) {
+  const { player, wanted, mission } = game;
+  const W = ctx.canvas.width;
+  const H = ctx.canvas.height;
+
+  // --- top-left: health + cash ---
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(14, 14, 250, 64);
+  ctx.fillStyle = '#e74c3c';
+  ctx.fillRect(24, 26, 150, 14);
+  ctx.fillStyle = player.hp > 30 ? '#2ecc71' : '#e74c3c';
+  ctx.fillRect(24, 26, 150 * clamp(player.hp / player.maxHp, 0, 1), 14);
+  ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+  ctx.strokeRect(24, 26, 150, 14);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 13px sans-serif';
+  ctx.fillText('RICO', 180, 33);
+  ctx.font = 'bold 20px sans-serif';
+  ctx.fillStyle = '#7ee081';
+  ctx.fillText(formatMoney(player.money), 24, 60);
+
+  // --- top-right: wanted stars ---
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(W - 180, 14, 166, 44);
+  drawStars(ctx, wanted.stars, W - 168, 36);
+
+  // --- top-center: objective banner ---
+  const objective = missionObjectiveText(game);
+  if (objective) {
+    ctx.font = 'bold 15px sans-serif';
+    const tw = ctx.measureText(objective).width;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(W / 2 - tw / 2 - 14, 14, tw + 28, 34);
+    ctx.fillStyle = '#ffd94a';
+    ctx.fillText(objective, W / 2 - tw / 2, 32);
   }
 
-  flash(text) {
-    this.el.flash.textContent = text;
-    this.el.flash.style.opacity = '1';
-    this.flashTimer = 3;
+  // --- mission timer (mission 4) ---
+  if (mission && mission.index === 3 && mission.phase === 'active') {
+    ctx.font = 'bold 26px monospace';
+    const ts = formatTime(mission.timer);
+    ctx.fillStyle = mission.timer < 30 ? '#ff5a3c' : '#fff';
+    ctx.textAlign = 'center';
+    ctx.fillText(ts, W / 2, 78);
+    ctx.textAlign = 'left';
   }
 
-  showMission(m) {
-    this.el.missionTitle.textContent = `Mission ${m.id} — ${m.title} ($${m.pay})`;
-    this.el.missionText.textContent = m.intro;
-    this.el.missionCard.style.opacity = '1';
-    setTimeout(() => { this.el.missionCard.style.opacity = '0'; }, 7000);
+  // --- context prompt (bottom-center) ---
+  const prompt = game.prompt;
+  if (prompt) {
+    ctx.font = 'bold 15px sans-serif';
+    const tw = ctx.measureText(prompt).width;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(W / 2 - tw / 2 - 12, H - 46, tw + 24, 30);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(prompt, W / 2 - tw / 2, H - 30);
   }
 
-  drawMinimap() {
-    const ctx = this.mapCtx;
-    ctx.clearRect(0, 0, MAP_PX, MAP_PX);
-    ctx.fillStyle = 'rgba(10,14,28,0.82)';
-    ctx.fillRect(0, 0, MAP_PX, MAP_PX);
-    this.drawLake(ctx);
-    this.drawRoads(ctx);
-    this.drawBuildings(ctx);
-    this.drawObjective(ctx);
-    this.drawPolice(ctx);
-    this.drawPlayer(ctx);
+  // --- toasts ---
+  ctx.font = 'bold 15px sans-serif';
+  ctx.textAlign = 'center';
+  game.toasts.forEach((t, i) => {
+    ctx.globalAlpha = Math.min(1, t.life / 0.6);
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    const tw = ctx.measureText(t.text).width;
+    ctx.fillRect(W / 2 - tw / 2 - 10, 96 + i * 30, tw + 20, 24);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(t.text, W / 2, 108 + i * 30);
+    ctx.globalAlpha = 1;
+  });
+  ctx.textAlign = 'left';
+
+  // --- damage vignette ---
+  if (player.hurtTimer > 0) {
+    ctx.fillStyle = `rgba(231,76,60,${0.22 * (player.hurtTimer / 0.5)})`;
+    ctx.fillRect(0, 0, W, H);
   }
 
-  drawLake(ctx) {
-    ctx.fillStyle = '#7fc4de';
+  drawMinimap(ctx, game);
+
+  // --- off-screen objective arrow ---
+  const target = missionTarget(game);
+  if (target) {
+    const cam = game.camera;
+    const sx = (target.x - cam.x) * cam.zoom;
+    const sy = (target.y - cam.y) * cam.zoom;
+    if (sx < 40 || sx > W - 40 || sy < 90 || sy > H - 90) {
+      const cx = clamp(sx, 50, W - 50);
+      const cy = clamp(sy, 100, H - 60);
+      const ang = Math.atan2(sy - H / 2, sx - W / 2);
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(ang);
+      ctx.fillStyle = '#ffd94a';
+      ctx.beginPath();
+      ctx.moveTo(16, 0);
+      ctx.lineTo(-8, -10);
+      ctx.lineTo(-8, 10);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillStyle = '#ffd94a';
+      ctx.fillText(target.label + '  ' + Math.round(Math.hypot(target.x - player.x, target.y - player.y)) + 'm', cx + 18, cy + 4);
+    }
+  }
+}
+
+function drawMinimap(ctx, game) {
+  const { world, player } = game;
+  const W = ctx.canvas.width;
+  const H = ctx.canvas.height;
+  const x0 = 14;
+  const y0 = H - MAP_SIZE - 14;
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(x0 - 4, y0 - 4, MAP_SIZE + 8, MAP_SIZE + 8);
+  if (game.minimapCanvas) ctx.drawImage(game.minimapCanvas, x0, y0);
+  const scale = MAP_SIZE / WORLD_W;
+  const dot = (x, y, r, color) => {
+    ctx.fillStyle = color;
     ctx.beginPath();
-    const [lx, lz] = this.project(LAKE.x, LAKE.z);
-    ctx.ellipse(lx, lz, LAKE.rx / MAP_SPAN * MAP_PX, LAKE.rz / MAP_SPAN * MAP_PX, 0, 0, Math.PI * 2);
+    ctx.arc(x0 + x * scale, y0 + y * scale, r, 0, Math.PI * 2);
     ctx.fill();
+  };
+  // Markers + pickups.
+  for (const mk of game.markers) {
+    const pulse = 4 + Math.sin(game.time * 4) * 1.5;
+    dot(mk.x, mk.y, pulse, mk.color);
   }
-
-  drawRoads(ctx) {
-    ctx.strokeStyle = '#5a6274';
-    ctx.lineWidth = 3;
-    for (const r of ROADS) {
-      const [ax, az] = this.project(r.ax, r.az);
-      const [bx, bz] = this.project(r.bx, r.bz);
-      ctx.beginPath(); ctx.moveTo(ax, az); ctx.lineTo(bx, bz); ctx.stroke();
-    }
+  for (const pk of game.pickups) {
+    if (!pk.taken) dot(pk.x, pk.y, 3, pk.kind === 'gold' ? '#ffd94a' : '#7ee081');
   }
-
-  drawBuildings(ctx) {
-    ctx.fillStyle = '#c8a06a';
-    for (const b of BUILDINGS) {
-      const [bx, bz] = this.project(b.x, b.z);
-      ctx.fillRect(bx - 2, bz - 2, 4, 4);
-    }
+  for (const car of game.cars) {
+    if (car.wrecked) continue;
+    dot(car.x, car.y, car.driver === 'police' ? 3.5 : 2, car.driver === 'police' ? '#4a90ff' : '#cccccc');
   }
-
-  drawObjective(ctx) {
-    const pt = this.G.missions.objectivePoint();
-    if (!pt || !this.G.missions.active) return;
-    const [mx, mz] = this.project(pt[0], pt[1]);
-    ctx.fillStyle = '#ffc030';
-    ctx.beginPath(); ctx.arc(mx, mz, 5, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = '#ffc030'; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc(mx, mz, 8 + Math.sin(performance.now() / 300) * 2, 0, Math.PI * 2); ctx.stroke();
+  for (const ped of game.peds) {
+    if (ped.dead) continue;
+    if (ped.kind === 'rival' || ped.kind === 'guard') dot(ped.x, ped.y, 2.5, '#ff5a3c');
+    else if (ped.kind === 'cop') dot(ped.x, ped.y, 2.5, '#4a90ff');
   }
-
-  drawPolice(ctx) {
-    ctx.fillStyle = '#ff5040';
-    for (const c of this.G.wanted.police) {
-      if (c.destroyed) continue;
-      const [cx, cz] = this.project(c.x, c.z);
-      ctx.beginPath(); ctx.arc(cx, cz, 3, 0, Math.PI * 2); ctx.fill();
-    }
-  }
-
-  drawPlayer(ctx) {
-    const p = this.G.player;
-    const px = p.inCar ? p.inCar.x : p.x, pz = p.inCar ? p.inCar.z : p.z;
-    const pa = p.inCar ? p.inCar.angle : p.angle;
-    const [ux, uz] = this.project(px, pz);
-    ctx.save();
-    ctx.translate(ux, uz);
-    ctx.rotate(Math.PI - pa);
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath(); ctx.moveTo(0, -6); ctx.lineTo(4.5, 5); ctx.lineTo(-4.5, 5); ctx.closePath(); ctx.fill();
-    ctx.restore();
-  }
+  // Player: white ring.
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(x0 + player.x * scale, y0 + player.y * scale, 5, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.lineWidth = 1;
+  // North + label.
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 11px sans-serif';
+  ctx.fillText('N', x0 + MAP_SIZE / 2 - 4, y0 - 8 + 4);
+  ctx.fillText('EMBER ISLE', x0, y0 + MAP_SIZE + 12);
 }

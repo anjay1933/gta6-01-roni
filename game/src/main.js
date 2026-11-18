@@ -1,306 +1,291 @@
-// FROSTLINE — entry point: renderer, input, state machine, game loop, save/load.
-import * as THREE from 'three';
-import { CFG, CARS } from './config.js';
+// EMBER ISLE — boot, game loop, screens and saving. The game object holds
+// everything; step(dt) advances one fixed slice of the world.
+import { createInput } from './input.js';
+import { createAudio } from './audio.js';
 import { buildWorld } from './world.js';
-import { Player } from './player.js';
-import { Car } from './vehicles.js';
-import { People } from './people.js';
-import { Wanted } from './wanted.js';
-import { Combat } from './combat.js';
-import { Missions } from './missions.js';
-import { HUD } from './hud.js';
-import { AudioSys } from './audio.js';
-import { applyShot } from './shots.js';
+import { createPlayer, updatePlayer, exitCar } from './player.js';
+import { makeCar, updateCar, collideCars } from './vehicles.js';
+import { spawnCivilians, updatePed } from './people.js';
+import { createCombat, updateParticles } from './combat.js';
+import { createWanted, updateWanted } from './wanted.js';
+import { startMission, updateMission } from './missions.js';
+import { drawHUD, buildMinimap } from './hud.js';
+import { drawWorld, drawTitle, drawBrief, drawPaused, drawMissionEnd, drawGameOver, updateCamera } from './render.js';
+import { stageShot } from './shots.js';
+import { createAutopilot, createVerifyRun } from './autopilot.js';
+import { VIEW, SAVE_KEY } from './config.js';
+import { makeRng } from './random.js';
 
-window.__THREE__ = THREE;
+const canvas = document.getElementById('game');
+canvas.width = VIEW.width;
+canvas.height = VIEW.height;
+const ctx = canvas.getContext('2d');
+const params = new URLSearchParams(window.location.search);
+const seed = Number(params.get('seed') || 20261118);
 
-const SAVE_KEY = 'frostline-save-v1';
-
-// G is the shared game object every system reads and writes.
-const G = {
-  state: 'menu', // menu | playing | paused | over | complete
-  blizzard: false,
+const game = {
+  canvas,
+  input: createInput(canvas),
+  audio: createAudio(),
+  rng: makeRng(seed),
+  world: null,
+  player: null,
   cars: [],
-  scene: null,
-  camera: null,
-  renderer: null,
-  input: { forward: false, back: false, left: false, right: false, sprint: false, jump: false, g: false },
-  mouseDX: 0,
-};
-
-function init() {
-  const canvas = document.getElementById('game-canvas');
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
-  G.renderer = renderer;
-
-  const scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(CFG.fogColor, CFG.fogNear, CFG.fogFar);
-  G.scene = scene;
-
-  const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 1200);
-  camera.position.set(-30, 12, 60);
-  G.camera = camera;
-
-  buildWorld(G);
-  G.player = new Player(G);
-  G.people = new People(G);
-  G.wanted = new Wanted(G);
-  G.combat = new Combat(G);
-  G.missions = new Missions(G);
-  G.hud = new HUD(G);
-  G.audio = new AudioSys();
-
-  // Parked cars (traffic cars spawn through People).
-  for (const c of CARS) {
-    if (c.traffic) continue;
-    const car = new Car(G, c.type, c.x, c.z, c.angle, {});
-    G.cars.push(car);
-  }
-  G.people.spawnTraffic(G, CARS);
-
-  // Keyboard: one map, one input object, shared by walking and driving.
-  const keyMap = {
-    KeyW: 'forward', ArrowUp: 'forward', KeyS: 'back', ArrowDown: 'back',
-    KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right',
-    ShiftLeft: 'sprint', ShiftRight: 'sprint', Space: 'jump',
-  };
-  window.addEventListener('keydown', (e) => {
-    if (keyMap[e.code] !== undefined) { G.input[keyMap[e.code]] = true; e.preventDefault(); }
-    if (e.code === 'KeyE') tryEnterExit();
-    if (e.code === 'KeyF') G.combat.punch();
-    if (e.code === 'KeyR') driveBy();
-    if (e.code === 'KeyG') G.input.g = true;
-    if (e.code === 'KeyM') toggleMute();
-    if (e.code === 'KeyP' || e.code === 'Escape') togglePause();
-    if (e.code === 'Enter' && G.state === 'menu') startGame(false);
-  });
-  window.addEventListener('keyup', (e) => {
-    if (keyMap[e.code] !== undefined) G.input[keyMap[e.code]] = false;
-    if (e.code === 'KeyG') G.input.g = false;
-  });
-  canvas.addEventListener('click', () => {
-    if (G.state === 'playing') {
-      G.audio.init();
-      const p = canvas.requestPointerLock?.();
-      if (p && p.catch) p.catch(() => {}); // headless / no-gesture: ignore
+  peds: [],
+  markers: [],
+  pickups: [],
+  particles: [],
+  explosions: [],
+  combat: null,
+  wanted: createWanted(),
+  mission: null,
+  camera: { x: 0, y: 0, zoom: 1 },
+  time: 0,
+  screen: 'title',
+  paused: false,
+  zoomOverride: 0,
+  toasts: [],
+  prompt: '',
+  minimapCanvas: null,
+  saveData: { unlocked: 0, money: 0 },
+  verify: null,
+  autopilot: null,
+  toast(text) {
+    this.toasts.push({ text, life: 3.2 });
+    if (this.toasts.length > 3) this.toasts.shift();
+  },
+  save() {
+    try {
+      const done = this.mission ? this.mission.index + (this.mission.phase === 'done' || this.mission.phase === 'complete' ? 1 : 0) : 0;
+      this.saveData.unlocked = Math.max(this.saveData.unlocked, done);
+      this.saveData.money = this.player.money;
+      localStorage.setItem(SAVE_KEY, JSON.stringify(this.saveData));
+    } catch {
+      /* saving is a bonus, never a crash */
     }
-  });
-  document.addEventListener('pointerlockchange', () => {
-    G.pointerLocked = document.pointerLockElement === canvas;
-  });
-  document.addEventListener('mousemove', (e) => {
-    if (!G.pointerLocked) return;
-    G.player.camYaw -= e.movementX * 0.0026;
-    G.player.camPitch = Math.max(-0.15, Math.min(0.9, G.player.camPitch + e.movementY * 0.0022));
-  });
-  canvas.addEventListener('mousedown', (e) => {
-    if (e.button === 0 && G.state === 'playing') { G.audio.init(); G.combat.shoot(); }
-  });
-  window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-  });
-
-  // Menu buttons.
-  document.getElementById('btn-start').addEventListener('click', () => startGame(false));
-  document.getElementById('btn-continue').addEventListener('click', () => startGame(true));
-  document.getElementById('btn-resume').addEventListener('click', () => togglePause());
-  document.getElementById('btn-restart').addEventListener('click', () => { location.reload(); });
-  document.getElementById('btn-retry').addEventListener('click', () => { location.reload(); });
-  document.getElementById('btn-mute').addEventListener('click', toggleMute);
-  document.getElementById('btn-sound').addEventListener('click', () => { G.audio.init(); toggleMute(); });
-
-  // CONTINUE only shows when a save exists.
-  if (loadSave(true)) document.getElementById('btn-continue').style.display = 'inline-block';
-
-  // Debug handle for play-testing (not part of the game UI).
-  window.__FL = { G, startGame, version: 'frostline-1.0' };
-  // Manual logic step for headless verification: advance game time without rendering.
-  window.__FL.step = (dt) => {
-    window.__FL._t = (window.__FL._t || 0) + dt;
-    if (G.state === 'playing') stepGame(dt, window.__FL._t);
-  };
-
-  // Staged screenshot mode.
-  const params = new URLSearchParams(location.search);
-  const shot = params.get('shot');
-  if (shot) {
-    applyShot(G, shot);
-  }
-
-  // Main loop.
-  const clock = new THREE.Clock();
-  let frames = 0;
-  function loop() {
-    requestAnimationFrame(loop);
-    const dt = Math.min(clock.getDelta(), 0.05);
-    const t = clock.elapsedTime;
-    frames++;
-    if (G.state === 'playing') {
-      stepGame(dt, t);
-    } else if (G.state === 'menu') {
-      // Slow cinematic orbit behind the menu.
-      const a = t * 0.05;
-      camera.position.set(Math.sin(a) * 90, 26, Math.cos(a) * 90);
-      camera.lookAt(0, 4, -40);
-      G.world.update(dt, t, camera.position, false);
+  },
+  load() {
+    try {
+      const raw = localStorage.getItem(SAVE_KEY);
+      if (raw) {
+        const data = JSON.parse(raw);
+        if (data && typeof data.unlocked === 'number') this.saveData = data;
+      }
+    } catch {
+      /* no save yet */
     }
-    renderer.render(scene, camera);
-    if (frames === 5) window.__gameReady = true;
-  }
-  loop();
+  },
+  reset(nextSeed) {
+    const s = nextSeed || seed;
+    this.rng = makeRng(s);
+    this.world = buildWorld(s);
+    this.player = createPlayer(this.world);
+    this.player.money = this.saveData.money || 0;
+    this.cars = [];
+    this.peds = [];
+    this.markers = [];
+    this.pickups = [];
+    this.particles = [];
+    this.explosions = [];
+    this.combat = createCombat(this);
+    this.wanted = createWanted();
+    this.mission = null;
+    this.camera = { x: this.player.x - VIEW.width / 2, y: this.player.y - VIEW.height / 2, zoom: 1 };
+    this.time = 0;
+    this.toasts = [];
+    this.prompt = '';
+    this.minimapCanvas = buildMinimap(this.world);
+    // Traffic on the roads, plus a few parked cars to steal in town.
+    const nodes = this.world.roadNodes;
+    const kinds = ['sedan', 'pickup', 'truck', 'sedan', 'pickup'];
+    for (let i = 0; i < 8; i++) {
+      const n = nodes[i % nodes.length];
+      const car = makeCar(this.world, n.x + this.rng.range(-40, 40), n.y + this.rng.range(-40, 40), kinds[i % kinds.length], 'traffic');
+      car.angle = this.rng.range(0, Math.PI * 2);
+      this.cars.push(car);
+    }
+    const town = this.world.places.town;
+    // Parked on the port road itself, clear of the town's buildings.
+    for (let i = 0; i < 3; i++) {
+      const car = makeCar(this.world, 2000 + i * 200, town.y + 20, kinds[i % kinds.length], null, 'Parked ' + kinds[i % kinds.length]);
+      car.angle = Math.PI / 2;
+      this.cars.push(car);
+    }
+    spawnCivilians(this, 12);
+  },
+  // One fixed slice of the world. The autopilot calls this directly too.
+  step(dt) {
+    this.time += dt;
+    this.world.time += dt;
+    for (const t of this.toasts) t.life -= dt;
+    this.toasts = this.toasts.filter((t) => t.life > 0);
+
+    updateMission(this, dt);
+    const wasInCar = !this.player.onFoot;
+    updatePlayer(this, dt);
+    // E while already driving steps out of the car (entering is handled
+    // inside updatePlayer, so a fresh press never double-fires).
+    if (wasInCar && this.input.wasPressed('e')) {
+      this.input.consume('e');
+      exitCar(this);
+    }
+
+    for (const car of this.cars) updateCar(this, car, dt);
+    collideCars(this);
+    for (const ped of this.peds) updatePed(this, ped, dt);
+    this.peds = this.peds.filter((p) => !p.dead || p.kind === 'civilian');
+    this.combat.update(dt);
+    updateParticles(this, dt);
+    updateWanted(this, dt);
+    updateCamera(this, dt);
+
+    // Context prompt.
+    if (this.player.onFoot) {
+      let near = null;
+      for (const car of this.cars) {
+        if (car.wrecked) continue;
+        const d = Math.hypot(car.x - this.player.x, car.y - this.player.y);
+        if (d < 70) {
+          near = car;
+          break;
+        }
+      }
+      this.prompt = near ? 'E — Enter the ' + near.name : '';
+    } else {
+      this.prompt = 'E — Exit car      Space — Handbrake';
+    }
+    // Siren + engine follow the action.
+    const policeNear = this.cars.some((c) => c.driver === 'police' && !c.wrecked && Math.hypot(c.x - this.player.x, c.y - this.player.y) < 800);
+    this.audio.setSiren(policeNear && this.wanted.stars > 0, dt);
+    if (!this.player.onFoot && this.player.car) {
+      this.audio.setEngine(Math.abs(this.player.car.speed) / 360, true);
+    } else {
+      this.audio.setEngine(0, false);
+    }
+  },
+};
+
+game.load();
+game.reset(seed);
+window.__ember = game;
+
+function startFromTitle() {
+  const at = Math.min(game.saveData.unlocked, 5);
+  startMission(game, at);
+  game.screen = 'play';
 }
 
-// One logic tick: drive or walk, camera, people, wanted, combat, missions, HUD, audio.
-function stepGame(dt, t) {
-  const p = G.player;
-  if (p.inCar) {
-    const car = p.inCar;
-    const ctrl = {
-      f: G.input.forward, b: G.input.back, l: G.input.left, r: G.input.right,
-      handbrake: G.input.jump,
-    };
-    car.update(dt, ctrl);
-    p.pos.set(car.x, car.y, car.z);
-    p.mesh.position.copy(p.pos);
+function handleMenuKeys() {
+  const input = game.input;
+  if (input.wasPressed('Enter')) {
+    if (game.screen === 'title') {
+      game.audio.unlock();
+      startFromTitle();
+    } else if (game.player.dead) {
+      startMission(game, game.mission.index);
+      game.screen = 'play';
+    } else if (game.mission && game.mission.phase === 'brief') {
+      game.mission.phase = 'active';
+    } else if (game.mission && game.mission.phase === 'done') {
+      startMission(game, game.mission.index + 1);
+    } else if (game.mission && game.mission.phase === 'failed') {
+      startMission(game, game.mission.index);
+    } else if (game.mission && game.mission.phase === 'complete') {
+      game.mission = null;
+      game.screen = 'play';
+    }
+  }
+  if (input.wasPressed('p') && game.screen === 'play' && game.mission) {
+    game.paused = !game.paused;
+  }
+  if (input.wasPressed('m')) {
+    const muted = game.audio.toggleMute();
+    game.toast(muted ? 'Sound off' : 'Sound on');
+  }
+  if (input.wasPressed('r') && game.screen === 'play' && game.mission && game.mission.phase !== 'brief') {
+    startMission(game, game.mission.index);
+  }
+}
+
+let last = performance.now();
+let firstFrame = true;
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  let dt = (now - last) / 1000;
+  last = now;
+  if (dt > 0.05) dt = 0.05;
+  if (dt <= 0) dt = 1 / 60;
+
+  const input = game.input;
+
+  if (game.screen === 'play' && !game.paused) {
+    if (game.verify) {
+      // Verify mode: four world slices per frame, autopilot at the wheel.
+      // endFrame runs once per frame (below), so a virtual tap the
+      // autopilot pressed is still visible to the next frame's menu keys,
+      // and consume() stops it double-firing across the four slices.
+      for (let i = 0; i < 4; i++) {
+        game.autopilot.update(game, 1 / 60);
+        game.step(1 / 60);
+      }
+      game.verify.update(dt);
+    } else if (game.autopilot) {
+      // Screenshot mode: the staged scene keeps playing live at real
+      // speed, so the frame is a moving game, not a frozen one holding
+      // the last key the staging pressed.
+      game.autopilot.update(game, 1 / 60);
+      game.step(dt);
+    } else {
+      game.step(dt);
+    }
+  } else if (game.screen === 'title') {
+    game.world.time += dt;
+    game.time += dt;
+  }
+
+  // Menu keys run AFTER the step, so a virtual tap the autopilot pressed
+  // during the step is still in `pressed` when these are read — a tap
+  // made before the step would already be cleared by endFrame.
+  handleMenuKeys();
+
+  // Render.
+  if (game.screen === 'title') {
+    drawTitle(ctx, game);
   } else {
-    p.updateOnFoot(dt, G.input);
+    drawWorld(ctx, game);
+    drawHUD(ctx, game);
+    if (game.mission && game.mission.phase === 'brief') drawBrief(ctx, game);
+    else if (game.player.dead) drawGameOver(ctx, game);
+    else if (game.mission && (game.mission.phase === 'done' || game.mission.phase === 'failed' || game.mission.phase === 'complete')) {
+      drawMissionEnd(ctx, game);
+    }
+    if (game.paused) drawPaused(ctx);
   }
-  p.updateCamera(dt);
-  G.people.update(dt, t);
-  G.people.updateTraffic(dt);
-  G.wanted.update(dt);
-  G.combat.update(dt);
-  G.missions.update(dt);
-  G.world.update(dt, t, G.camera.position, G.blizzard);
-  G.hud.update(dt);
-  const speed = p.inCar ? Math.abs(p.inCar.speed) : (p.moving ? (G.input.sprint ? 10 : 6) : 0);
-  G.audio.update(dt, speed, G.blizzard);
-}
 
-function tryEnterExit() {
-  const p = G.player;
-  if (G.state !== 'playing') return;
-  if (p.inCar) { p.exitCar(); return; }
-  const car = p.nearestCar(G.cars);
-  if (car) {
-    p.enterCar(car);
-    G.audio.init();
-    if (car.type !== 'police') G.wanted.addStars(1, 'car stolen');
-    G.hud.flash(`You took the ${car.def.name}`);
+  input.endFrame();
+  if (firstFrame) {
+    firstFrame = false;
+    window.__emberReady = true;
   }
 }
 
-function driveBy() {
-  const p = G.player;
-  if (G.state !== 'playing' || !p.inCar) return;
-  G.combat.shoot();
+// Screenshot scenes (?shot=cover|foot|chase|mission) and the verify run
+// (?verify=1) start straight into the game, past the title screen.
+if (params.get('shot')) {
+  game.screen = 'play';
+  // The autopilot keeps driving the staged scene live after the sync
+  // staging finishes, or the frame freezes on the last key it held.
+  game.autopilot = createAutopilot(game);
+  stageShot(params.get('shot'), game);
+} else if (params.get('verify')) {
+  game.screen = 'play';
+  startMission(game, 0);
+  game.autopilot = createAutopilot(game);
+  game.verify = createVerifyRun(game);
+  window.__verify = null;
 }
 
-function toggleMute() {
-  G.audio.init();
-  G.audio.setMuted(!G.audio.muted);
-  document.getElementById('btn-mute').textContent = G.audio.muted ? 'SOUND: OFF' : 'SOUND: ON';
-  document.getElementById('btn-sound').textContent = G.audio.muted ? 'SOUND: OFF' : 'SOUND: ON';
-}
-
-function togglePause() {
-  if (G.state === 'playing') {
-    G.state = 'paused';
-    document.getElementById('pause-screen').style.display = 'flex';
-    document.exitPointerLock?.();
-  } else if (G.state === 'paused') {
-    G.state = 'playing';
-    document.getElementById('pause-screen').style.display = 'none';
-  }
-}
-
-function startGame(continueSave) {
-  G.audio.init();
-  if (continueSave) loadSave(false);
-  document.getElementById('start-screen').style.display = 'none';
-  document.getElementById('hud').style.display = 'block';
-  G.state = 'playing';
-  if (!G.missions.active && G.missions.index < 6) G.missions.start();
-}
-
-G.gameOver = function (kind) {
-  if (G.state !== 'playing') return;
-  G.state = 'over';
-  document.exitPointerLock?.();
-  const title = document.getElementById('over-title');
-  const text = document.getElementById('over-text');
-  if (kind === 'busted') {
-    title.textContent = 'BUSTED';
-    text.textContent = 'The ski patrol caught you. Your cash is safe, but the run is over.';
-    G.player.cash = Math.max(0, G.player.cash - 100);
-  } else {
-    title.textContent = 'WASTED';
-    text.textContent = 'You went down in the snow. The crew pulls you out — minus a little cash.';
-    G.player.cash = Math.max(0, G.player.cash - 150);
-  }
-  G.save();
-  document.getElementById('over-screen').style.display = 'flex';
-  document.getElementById('hud').style.display = 'none';
-};
-
-G.gameComplete = function () {
-  if (G.state !== 'playing') return;
-  G.state = 'complete';
-  document.exitPointerLock?.();
-  document.getElementById('complete-cash').textContent = `$${G.player.cash}`;
-  document.getElementById('complete-screen').style.display = 'flex';
-  document.getElementById('hud').style.display = 'none';
-  G.save();
-};
-
-// Damage the player (armor absorbs first); death ends the run.
-G.damagePlayer = function (amount) {
-  const p = G.player;
-  if (G.state !== 'playing') return;
-  if (p.armor > 0) {
-    const absorbed = Math.min(p.armor, amount);
-    p.armor -= absorbed;
-    amount -= absorbed;
-  }
-  p.health -= amount;
-  if (p.health <= 0) { p.health = 0; G.gameOver('wasted'); }
-};
-
-G.save = function () {
-  try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify({
-      cash: G.player.cash,
-      missionIndex: G.missions.index,
-      done: G.missions.done,
-      health: G.player.health,
-      armor: G.player.armor,
-      ammo: G.player.ammo,
-    }));
-  } catch { /* storage unavailable (e.g. file://) — progress just lives in memory */ }
-};
-
-function loadSave(peek) {
-  try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return false;
-    const s = JSON.parse(raw);
-    if (peek) return true;
-    G.player.cash = s.cash ?? CFG.startCash;
-    G.missions.index = s.missionIndex ?? 0;
-    G.missions.done = s.done ?? [];
-    G.player.health = s.health ?? CFG.playerHealth;
-    G.player.armor = s.armor ?? 0;
-    G.player.ammo = s.ammo ?? CFG.pistolAmmo;
-    return true;
-  } catch { return false; }
-}
-
-init();
+window.addEventListener('keydown', () => game.audio.unlock());
+window.addEventListener('mousedown', () => game.audio.unlock());
+requestAnimationFrame(frame);

@@ -1,32 +1,59 @@
-// FROSTLINE — a tiny static server for local play-testing only.
-// Serves game/ at http://localhost:8080 (open game/index.html there).
-// Not part of the submission; the game itself needs no server at all.
+// A tiny static server for game/ while developing: `node serve.ts` serves
+// it on http://localhost:8080. Standard library only, nothing fancy — it
+// sends the MIME types a browser game needs and refuses any path outside
+// game/.
+import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
-import { extname, join } from 'node:path';
+import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = join(fileURLToPath(new URL('.', import.meta.url)), 'game');
-const mime = {
-  '.html': 'text/html',
-  '.js': 'text/javascript',
-  '.mjs': 'text/javascript',
-  '.css': 'text/css',
-  '.json': 'application/json',
+const root = resolve(fileURLToPath(new URL('./game', import.meta.url)));
+const args = process.argv.slice(2);
+const portIndex = args.indexOf('--port');
+const requested = portIndex === -1 ? 8080 : Number(args[portIndex + 1]);
+const port = Number.isInteger(requested) && requested > 0 && requested < 65536 ? requested : 8080;
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
 };
 
-createServer(async (req, res) => {
+createServer((request, response) => {
+  const url = new URL(request.url ?? '/', 'http://localhost');
+  let pathname;
   try {
-    const path = req.url.split('?')[0];
-    const file = join(root, path === '/' ? 'index.html' : decodeURIComponent(path));
-    if (!file.startsWith(root)) { res.writeHead(403); res.end(); return; }
-    const data = await readFile(file);
-    res.writeHead(200, { 'Content-Type': mime[extname(file)] ?? 'application/octet-stream' });
-    res.end(data);
+    pathname = decodeURIComponent(url.pathname);
   } catch {
-    res.writeHead(404);
-    res.end('not found');
+    response.writeHead(400).end('bad request');
+    return;
   }
-}).listen(8080, () => console.log('FROSTLINE at http://localhost:8080'));
+  if (pathname.endsWith('/')) pathname += 'index.html';
+  const file = resolve(join(root, normalize(pathname)));
+  if (file !== root && !file.startsWith(root + sep)) {
+    response.writeHead(403).end('forbidden');
+    return;
+  }
+  let size;
+  try {
+    const stats = statSync(file);
+    if (!stats.isFile()) throw new Error('not a file');
+    size = stats.size;
+  } catch {
+    response.writeHead(404).end('not found');
+    return;
+  }
+  response.writeHead(200, {
+    'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream',
+    'content-length': size,
+    'cache-control': 'no-store',
+  });
+  createReadStream(file).pipe(response);
+}).listen(port, '127.0.0.1', () => {
+  console.log(`EMBER ISLE game/ is on http://localhost:${port}`);
+});
