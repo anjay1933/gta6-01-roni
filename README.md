@@ -1,8 +1,8 @@
 # EMBER ISLE — Make GTA 6
 
-[![make.fun — Make GTA 6](https://img.shields.io/badge/make.fun-gta6--01-orange)](https://make.fun/bounty/gta6-01)
-[![Prize — $1,666 USDC](https://img.shields.io/badge/prize-%241%2C666%20USDC-green)](https://make.fun/bounty/gta6-01)
-[![Entry — @roni-rockabilly](https://img.shields.io/badge/entry-roni--rockabilly-blue)](https://make.fun/bounty/gta6-01)
+[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![rank](https://make.fun/badge/gta6-01/anjay1933/gta6-01-roni/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![reward](https://make.fun/badge/gta6-01/anjay1933/gta6-01-roni/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
 A GTA-style open-world crime game on a **volcanic tropical island**, built for the
 [Make GTA 6 bounty on make.fun](https://make.fun/bounty/gta6-01) ($1,666, ends 24 Nov 2026).
